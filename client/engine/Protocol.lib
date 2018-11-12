@@ -337,7 +337,7 @@ fi
 #@version 1.1 - Control de errores en transferencia multicast (ticket #781) 
 #@author  Irina Gomez, ETSII Universidad de Sevilla 
 #@date    2017/04/20
-#@version 1.1.0.a - Parametros de clientes como sesision de multicast  (ticket #872) 
+#@version 1.1.0.a - Parametros de clientes como sesision de multicast  (ticket #851) 
 #@author  Antonio J. Doblas Viso
 #@date    2018/09/11
 
@@ -390,17 +390,17 @@ ogCheckStringInGroup "$1" "SENDPARTITION sendpartition RECEIVERPARTITION receive
 echo "$1" | grep "SEND" > /dev/null && MODE=server || MODE=client
 
 
-#Asignamos el número de parátmetros según el tipo de sisesión, cliente o servidor.
+#Asignamos el numero de paraetros segun el tipo de sisesiocliente o servidor.
 #La sesion de cliente seran 3, aunque uno es el obligado y dos opcionales.  puerto:server:autostart
 [ $MODE == "client" ] && SESSIONPARM=1 || SESSIONPARM=6
-#Controlamos el numero de parámetros incluidos en la sesión pasada como parátmetro $2
+#Controlamos el numero de paratros incluidos en la sesioasada como paraetro $2
 OIFS=$IFS; IFS=':' ; SESSION=($2); IFS=$OIFS
 #Controlamos la sesision del server.
 if [ $MODE == "server" ]
 then  
 	[[ ${#SESSION[*]} == $SESSIONPARM ]]  || ogRaiseError $OG_ERR_FORMAT "parametros session de servidor multicast no completa" || PERROR=2# return $?
 fi
-#controlamos la sesión del cliente.
+#controlamos la sesioel cliente.
 if [ $MODE == "client" ]
 then  
 	[[ ${#SESSION[*]} -ge $SESSIONPARM ]]  || ogRaiseError $OG_ERR_FORMAT "parametros session de cliente multicast no completa" || PERROR=2# return $?
@@ -410,7 +410,7 @@ fi
 PORTBASE=${SESSION[0]}
 ogCheckStringInGroup ${SESSION[0]} "$(seq 9000 2 9050)" || ogRaiseError $OG_ERR_FORMAT "McastSession portbase ${SESSION[0]}" || PERROR=3 #return $?
 
-#Controlamos el resto de componenentes de la sesión de servidor. 
+#Controlamos el resto de componenentes de la sesioe servidor. 
 if [ $MODE == "server" ]
 then    
 	ogCheckStringInGroup ${SESSION[1]} "full-duplex FULL-DUPLEX half-duplex HALF-DUPLEX broadcast BROADCAST" || ogRaiseError $OG_ERR_FORMAT "McastSession method ${SESSION[1]}" || PERROR=4 #return $?
@@ -436,11 +436,11 @@ then
 	ogCheckStringInGroup "$5" "lzop LZOP gzip GZIP 0 1" || ogRaiseError $OG_ERR_NOTFOUND " compresor $5 no valido" || PERROR=11 #return $?
 	LEVEL=$5
 fi
-# Controlamos si ha habido errores en la comprobación de la sesión del servidor.
+# Controlamos si ha habido errores en la comprobacioe la sesioel servidor.
 if [ "$PERROR" != "0" ]; then
 	ogRaiseError $OG_ERR_MCASTSYNTAXT " $PERROR"; return $?
 fi
-# Asignamos más valores no configurables a la sesión de servidor.
+# Asignamos mas valores no configurables a la sesioe servidor.
 CERROR="8x8/128"
 # opcion del usuo de tuberia intermedia en memoria mbuffer.
 which mbuffer > /dev/null && MBUFFER=" --pipe 'mbuffer -q -m 20M' " 
@@ -448,8 +448,8 @@ which mbuffer > /dev/null && MBUFFER=" --pipe 'mbuffer -q -m 20M' "
 # Generamos la instruccion base del servidor de multicast -Envio-
 SYNTAXSERVER="udp-sender $MBUFFER --nokbd --portbase $PORTBASE --$METHOD --mcast-data-address $ADDRESS --fec $CERROR --max-bitrate $BITRATE --ttl 16 --min-clients $NCLIENTS --max-wait $MAXTIME --autostart $MAXTIME --log /tmp/mcast.log"
 
-#Comprobamos los parametros de la sesión multicast para el cliente.
-#El primer parámetro PORTBASE, ya esta controlado. Porque es común al server y al cliente.
+#Comprobamos los parametros de la sesioulticast para el cliente.
+#El primer paratro PORTBASE, ya esta controlado. Porque es comun al server y al cliente.
 
 #SERVERADDRES
 if ogCheckIpAddress ${SESSION[1]}  
@@ -513,7 +513,8 @@ then
 	;;
 	esac
 else	 
-	ERRORSESSION=" --start-timeout 120"
+	#asignamos valor definido en el engine.cfg
+	ERRORSESSION=" --start-timeout $MCASTERRORSESSION"
 fi
 
 #Comprobamos el cuerto parametro  ${SESSION[2]} ERROR TRANSFER - TIMEOUT EEOR IF NOT RECEIVER DATA FROM SERVER 
@@ -529,6 +530,7 @@ then
 	;;
 	esac
 else	 
+	#asignamos valor definido en el engine.cfg
 	ABORTTRANSMISSION=" --receive-timeout $MCASTWAIT"
 fi
  
