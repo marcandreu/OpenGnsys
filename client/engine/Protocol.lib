@@ -369,7 +369,8 @@ PERROR=0
 
 #si no tenemos updcast o su version superior 2009 udpcast error.
 ISUDPCAST=$(udp-receiver --help 2>&1)
-echo $ISUDPCAST | grep start-timeout > /dev/null || ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe o version antigua -requerida 2009-"|| return $?
+echo $ISUDPCAST | grep start-timeout > /dev/null || ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe o version antigua -requerida 2009- start-timeout "|| return $?
+echo $ISUDPCAST | grep receive-timeout > /dev/null || ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe o version antigua -requerida 2009- receive-timeout  "|| return $?
 
 ############ BEGIN NUMBERS PARAMETERS CHECK  AND SESSION OPTIONS  IF CLIENT OR SERVER ##############
 # Definimos los parametros de la funcion segun la opcion de envio/recepcion.
