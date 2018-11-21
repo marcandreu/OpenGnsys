@@ -347,7 +347,7 @@ fi
 function ogMcastSyntax ()
 {
 
-local ISUDPCAST RECEIVERTIMEOUT PARM SESSION SESSIONPARM MODE PORTBASE PERROR
+local ISUDPCAST RECEIVERTIMEOUT STARTTIMEOUT PARM SESSION SESSIONPARM MODE PORTBASE PERROR
 local METHOD ADDRESS BITRATE NCLIENTS MAXTIME CERROR 
 local TOOL LEVEL DEVICE MBUFFER SYNTAXSERVER SYNTAXCLIENT 
 
@@ -369,7 +369,7 @@ PERROR=0
 
 #si no tenemos updcast o su version superior 2009 udpcast error.
 ISUDPCAST=$(udp-receiver --help 2>&1)
-echo $ISUDPCAST | grep start-timeout > /dev/null || ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe o version antigua -requerida 2009-"|| return $?
+echo $ISUDPCAST | grep "not found" > /dev/null && (ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe " && return $?)
 
 ############ BEGIN NUMBERS PARAMETERS CHECK  AND SESSION OPTIONS  IF CLIENT OR SERVER ##############
 # Definimos los parametros de la funcion segun la opcion de envio/recepcion.
@@ -448,7 +448,7 @@ SYNTAXSERVER="udp-sender $MBUFFER --nokbd --portbase $PORTBASE --$METHOD --mcast
 #La primera opcion PORTBASE, ya esta controlado. Porque es comun al server y al cliente.
 
 #La segunda opcion de la sesion para el cliente:: SERVERADDRES
-if ogCheckIpAddress ${SESSION[1]}  
+if ogCheckIpAddress ${SESSION[1]} 2>/dev/null  
 then
 	SERVERADDRESS=" --mcast-rdv-address ${SESSION[1]}"
 else
@@ -499,33 +499,39 @@ if ogCheckStringInReg ${SESSION[2]} "^[0-9]{1,10}$"  &>/dev/null
 then 
 	case ${SESSION[2]} in
 	0)
-		ERRORSESSION=" "		
+		STARTTIMEOUT=" "		
 	;;
 	*)
-		ERRORSESSION=" --start-timeout ${SESSION[2]}"
+		STARTTIMEOUT=" --start-timeout ${SESSION[2]}"
 	;;
 	esac
 else	 
 	#asignamos valor definido en el engine.cfg
-	ERRORSESSION=" --start-timeout $MCASTERRORSESSION"
+	STARTTIMEOUT=" --start-timeout $MCASTERRORSESSION"
 fi
+#Verificamos que la opcion start-time out esta soportada por la version del cliente
+echo $ISUDPCAST | grep start-timeout > /dev/null || STARTTIMEOUT=" "
+
 #La cuarta opcion de la sesion para el cliente:   ${SESSION[2]} ERROR TRANSFER - TIMEOUT EEOR IF NOT RECEIVER DATA FROM SERVER 
 if ogCheckStringInReg ${SESSION[3]} "^[0-9]{1,10}$" &>/dev/null
 then 
 	case ${SESSION[3]} in
 	0)
-		ABORTTRANSMISSION=" "		
+		RECEIVERTIMEOUT=" "		
 	;;
 	*)
-		ABORTTRANSMISSION=" --receive-timeout ${SESSION[3]}"
+		RECEIVERTIMEOUT=" --receive-timeout ${SESSION[3]}"
 	;;
 	esac
 else	 
 	#asignamos valor definido en el engine.cfg
-	ABORTTRANSMISSION=" --receive-timeout $MCASTWAIT"
+	RECEIVERTIMEOUT=" --receive-timeout $MCASTWAIT"
 fi 
+#Verificamos que la opcion receive-timeou esta soportada por la version del cliente
+echo $ISUDPCAST | grep receive-timeout > /dev/null || RECEIVERTIMEOUT=" "
+
 #Componenemos la sesion multicast del cliente
-SYNTAXCLIENT="udp-receiver $MBUFFER --portbase $PORTBASE $SERVERADDRESS $ERRORSESSION $ABORTTRANSMISSION  --log /tmp/mcast.log"
+SYNTAXCLIENT="udp-receiver $MBUFFER --portbase $PORTBASE $SERVERADDRESS $STARTTIMEOUT $RECEIVERTIMEOUT  --log /tmp/mcast.log"
 ##########################################################################
 #### END CLIENT SESSION ##############
 
