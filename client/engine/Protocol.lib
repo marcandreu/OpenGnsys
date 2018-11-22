@@ -367,11 +367,9 @@ if [ "$*" == "help" -o "$2" == "help" ]; then
 fi
 PERROR=0
 
-
-#si no tenemos updcast error. (o su version superior 2009 udpcast)
-echo $ISUDPCAST | grep "not found" > /dev/null && (ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe " || return $?)
-#almacenamos las opciones disponibles en udp-receiver
+#si no tenemos updcast o su version superior 2009 udpcast error.
 ISUDPCAST=$(udp-receiver --help 2>&1)
+echo $ISUDPCAST | grep "not found" > /dev/null && (ogRaiseError $OG_ERR_NOTEXEC "upd-cast no existe " && return $?)
 
 ############ BEGIN NUMBERS PARAMETERS CHECK  AND SESSION OPTIONS  IF CLIENT OR SERVER ##############
 # Definimos los parametros de la funcion segun la opcion de envio/recepcion.
@@ -539,7 +537,7 @@ SYNTAXCLIENT="udp-receiver $MBUFFER --portbase $PORTBASE $SERVERADDRESS $STARTTI
 
  ######## BEGIN MAIN PROGAM #####
 case "$1" in
-	SENDPARTITION)
+SENDPARTITION)
 		PROG1=`ogCreateImageSyntax $DEVICE " " $TOOL $LEVEL | awk -F"|" '{print $1 "|" $3}' | tr -d ">"`
 		echo "$PROG1 | $SYNTAXSERVER"
 	;;
