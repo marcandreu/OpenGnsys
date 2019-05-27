@@ -21,9 +21,11 @@ include_once("../../includes/RecopilaIpesMacs.php");
 include_once("../includes/capturaacciones.php");
 //________________________________________________________________________________________________________
 
+define("IDCOMMANDWAKEUP", 1);
 define("IDCOMMANDPOWEROFF", 2);
 define("IDCOMMANDREBOOT", 5);
 define("IDCOMMANDEXECSCRIPT", 8);
+define('IDCOMMANDSESSION', 9);
 define("IDCOMMANDSENDMESSAGE", 16);
 
 // Recoge parametros de seguimiento
@@ -124,6 +126,8 @@ $cmd->CreaParametro("@ordtarea",0,1);
 if($funcion == "nfn=Arrancar".chr(13))
 	include("wakeonlan_repo.php");
 /**/
+if ($idcomando == 9)
+	session($cadenaip, $atributos);
 
 if($ambito==0){ // Ambito restringido a un subconjuto de ordenadores con formato (idordenador1,idordenador2,etc)
 	$cmd->ParamSetValor("@restrambito",$idambito);
@@ -179,7 +183,8 @@ if($sw_ejya=='on' || $sw_ejprg=="on" ){
 		$ValorParametros=extrae_parametros($parametros,chr(13),'=');
 		$script=@urldecode($ValorParametros["scp"]);
 		if($sw_ejya=='on'){ 	
-			if ($idcomando != IDCOMMANDSENDMESSAGE) {
+			if ($idcomando != IDCOMMANDSENDMESSAGE && $idcomando != IDCOMMANDWAKEUP &&
+				$idcomando != IDCOMMANDSESSION) {
 			    // Envío al servidor
 			    $shidra=new SockHidra($servidorhidra,$hidraport); 
 			    if ($shidra->conectar()){ // Se ha establecido la conexión con el servidor hidra
