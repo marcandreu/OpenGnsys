@@ -132,6 +132,9 @@ switch ($idcomando) {
 		break;
 	case OG_CMD_ID_POWEROFF:
 		poweroff($cadenaip);
+		break;
+	case OG_CMD_ID_REBOOT:
+		reboot($cadenaip);
 }
 
 if($ambito==0){ // Ambito restringido a un subconjuto de ordenadores con formato (idordenador1,idordenador2,etc)
@@ -191,7 +194,8 @@ if($sw_ejya=='on' || $sw_ejprg=="on" ){
 			if ($idcomando != OG_CMD_ID_SENDMESSAGE &&
 			    $idcomando != OG_CMD_ID_WAKEUP &&
 			    $idcomando != OG_CMD_ID_SESSION &&
-			    $idcomando != OG_CMD_ID_POWEROFF) {
+			    $idcomando != OG_CMD_ID_POWEROFF &&
+			    $idcomando != OG_CMD_ID_REBOOT) {
 			    // Envío al servidor
 			    $shidra=new SockHidra($servidorhidra,$hidraport); 
 			    if ($shidra->conectar()){ // Se ha establecido la conexión con el servidor hidra
