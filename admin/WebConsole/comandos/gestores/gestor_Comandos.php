@@ -21,12 +21,12 @@ include_once("../../includes/RecopilaIpesMacs.php");
 include_once("../includes/capturaacciones.php");
 //________________________________________________________________________________________________________
 
-define("IDCOMMANDWAKEUP", 1);
-define("IDCOMMANDPOWEROFF", 2);
-define("IDCOMMANDREBOOT", 5);
-define("IDCOMMANDEXECSCRIPT", 8);
-define('IDCOMMANDSESSION', 9);
-define("IDCOMMANDSENDMESSAGE", 16);
+define('OG_CMD_ID_WAKEUP', 1);
+define('OG_CMD_ID_POWEROFF', 2);
+define('OG_CMD_ID_REBOOT', 5);
+define('OG_CMD_ID_EXECSCRIPT', 8);
+define('OG_CMD_ID_SESSION', 9);
+define('OG_CMD_ID_SENDMESSAGE', 16);
 
 // Recoge parametros de seguimiento
 $sw_ejya="";
@@ -183,8 +183,8 @@ if($sw_ejya=='on' || $sw_ejprg=="on" ){
 		$ValorParametros=extrae_parametros($parametros,chr(13),'=');
 		$script=@urldecode($ValorParametros["scp"]);
 		if($sw_ejya=='on'){ 	
-			if ($idcomando != IDCOMMANDSENDMESSAGE && $idcomando != IDCOMMANDWAKEUP &&
-				$idcomando != IDCOMMANDSESSION) {
+			if ($idcomando != OG_CMD_ID_SENDMESSAGE && $idcomando != OG_CMD_ID_WAKEUP &&
+				$idcomando != OG_CMD_ID_SESSION) {
 			    // Envío al servidor
 			    $shidra=new SockHidra($servidorhidra,$hidraport); 
 			    if ($shidra->conectar()){ // Se ha establecido la conexión con el servidor hidra
@@ -212,24 +212,24 @@ if($sw_ejya=='on' || $sw_ejprg=="on" ){
 			$numip=0;
 			$ogAgentNuevo = false;
 			switch ($idcomando) {
-				case IDCOMMANDPOWEROFF:
+				case OG_CMD_ID_POWEROFF:
  					// Apagar
 					$urlcomando = 'poweroff';
 					$ogAgentNuevo = true;
 					break;
-				case IDCOMMANDREBOOT:
+				case OG_CMD_ID_REBOOT:
 					// Reiniciar
 					$urlcomando = 'reboot';
 					$ogAgentNuevo = true;
 					break;
-				case IDCOMMANDEXECSCRIPT:
+				case OG_CMD_ID_EXECSCRIPT:
 					// Ejecutar script 
 					$urlcomando = 'script';
 					$ogAgentNuevo = true;
 					$client = (isset ($_POST['modoejecucion']) && $_POST['modoejecucion'] != '' ) ? $_POST['modoejecucion'] : 'true';
 					$paramsPost = '{"script":"'.base64_encode($script).'","client":"'.$client.'"}';
 					break;
-				case IDCOMMANDSENDMESSAGE:
+				case OG_CMD_ID_SENDMESSAGE:
 					// Enviar mensaje
 					$urlcomando = 'popup';
 					$ogAgentNuevo = true;
