@@ -784,7 +784,7 @@ function ogGrubInstallMbr ()
 
 # Variables locales.
 local PART DISK VERSION FIRSTAGE SECONSTAGE CHECKOS KERNELPARAM BACKUPNAME
-local EFIDISK EFIPART EFISECONDSTAGE EFISUBDIR EFIOPTGRUB
+local EFIDISK EFIPART EFISECONDSTAGE EFISUBDIR EFIOPTGRUB GRUBENTRY NEWORDER
 
 # Si se solicita, mostrar ayuda.
 if [ "$*" == "help" ]; then
@@ -890,9 +890,15 @@ EVAL=$?
 if ogIsEfiActive; then
     mv ${EFISECONDSTAGE}/EFI/$EFISUBDIR/EFI/BOOT/* ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot
     rm -rf ${EFISECONDSTAGE}/EFI/$EFISUBDIR/EFI
-    cp /usr/lib/shim/shimx64.efi.signed ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot
+    cp /usr/lib/shim/shimx64.efi.signed ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot/shimx64.efi
     # Nombre OpenGnsys para cargador
-    cp ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot/{shimx64.efi.signed,ogloader.efi}
+    cp ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot/{grubx64.efi,ogloader.efi}
+
+    # Creamos entrada NVRAM y la ponemos en segundo lugar
+    ogNvramAddEntry grub /EFI/grub/Boot/shimx64.efi
+    GRUBENTRY=$(ogNvramList| awk '{if ($2=="grub") print $1}')
+    NEWORDER="$(ogNvramGetOrder|awk -v ENTRY=$GRUBENTRY '{gsub(",", " "); printf "%x %x %s\n", $1 , ENTRY , substr($0, index($0,$2))}')"
+    ogNvramSetOrder $NEWORDER
 fi 
 return $EVAL
 
@@ -1028,7 +1034,7 @@ if ogIsEfiActive; then
     rm -rf ${EFISECONDSTAGE}/EFI/$EFISUBDIR/EFI
     cp /usr/lib/shim/shimx64.efi.signed ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot/shimx64.efi
     # Nombre OpenGnsys para cargador
-    cp ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot/{shimx64.efi,ogloader.efi}
+    cp ${EFISECONDSTAGE}/EFI/$EFISUBDIR/Boot/{grubx64.efi,ogloader.efi}
 fi
 
 return $EVAL
@@ -2776,19 +2782,20 @@ else
         [ -f $DIR/Boot/grubx64.efi ] && echo "    icon /EFI/refind/icons/os_linux.png" >> $CFGFILE
         echo "}" >> $CFGFILE
     done
-    # Configuración ogLive
-    # Comantamos temporalmente: Con la versión nueva de refind falla
-    #if [ "$OGLIVE" != "" ]; then
-    #    echo "menuentry \"OpenGnsys Live\" {" >> $CFGFILE
-    #    echo "    volume CACHE" >> $CFGFILE
-    #    echo "    ostype Linux" >> $CFGFILE
-    #    echo "    loader /boot/$(basename ${OGLIVE%/*})/ogvmlinuz" >> $CFGFILE
-    #    echo "    initrd /boot/$(basename ${OGLIVE%/*})/oginitrd.img" >> $CFGFILE
-    #    echo "    options \"$CMDLINE\"" >> $CFGFILE
-    #    echo "}" >> $CFGFILE
+    # Configuración ogLive si secureboot no está activado
+    if ! dmesg|grep secureboot.*enabled &>/dev/null; then
+        if [ "$OGLIVE" != "" ]; then
+            echo "menuentry \"OpenGnsys Live\" {" >> $CFGFILE
+            echo "    volume CACHE" >> $CFGFILE
+            echo "    ostype Linux" >> $CFGFILE
+            echo "    loader /boot/$(basename ${OGLIVE%/*})/ogvmlinuz" >> $CFGFILE
+            echo "    initrd /boot/$(basename ${OGLIVE%/*})/oginitrd.img" >> $CFGFILE
+            echo "    options \"$CMDLINE\"" >> $CFGFILE
+            echo "}" >> $CFGFILE
 
-    #    # Ponemos ogLive como la entrada por defecto
-    #    sed -i '1 i\default_selection "OpenGnsys Live"' $CFGFILE
-    #fi
+            # Ponemos ogLive como la entrada por defecto
+            sed -i '1 i\default_selection "OpenGnsys Live"' $CFGFILE
+        fi
+    fi
 fi
 }

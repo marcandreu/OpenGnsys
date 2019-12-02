@@ -73,7 +73,7 @@ if [ -d "$PROGRAMDIR/../installer" ]; then
 else
 	REMOTE=1
 fi
-BRANCH="devel"
+BRANCH="master"
 CODE_URL="https://codeload.github.com/opengnsys/OpenGnsys/zip/$BRANCH"
 API_URL="https://api.github.com/repos/opengnsys/OpenGnsys/branches/$BRANCH"
 RAW_URL="https://raw.githubusercontent.com/opengnsys/OpenGnsys/$BRANCH"
@@ -118,7 +118,7 @@ function autoConfigure()
 	# Configuración según la distribución de Linux.
 	if [ -f /etc/debian_version ]; then
 		# Distribución basada en paquetes Deb.
-		DEPENDENCIES=( curl rsync btrfs-tools procps arp-scan realpath php-curl gettext moreutils jq wakeonlan udpcast libev-dev libjansson-dev shim-signed grub-efi-amd64-signed php-fpm )
+		DEPENDENCIES=( curl rsync btrfs-tools procps arp-scan realpath php-curl gettext moreutils jq wakeonlan udpcast libev-dev libjansson-dev libssl-dev shim-signed grub-efi-amd64-signed php-fpm gawk )
 		# Paquete correcto para realpath.
 		[ -z "$(apt-cache pkgnames realpath)" ] && DEPENDENCIES=( ${DEPENDENCIES[@]//realpath/coreutils} )
 		UPDATEPKGLIST="add-apt-repository -y ppa:ondrej/php; apt-get update"
@@ -143,7 +143,7 @@ function autoConfigure()
 		INETDCFGDIR=/etc/xinetd.d
 	elif [ -f /etc/redhat-release ]; then
 		# Distribución basada en paquetes rpm.
-		DEPENDENCIES=( curl rsync btrfs-progs procps-ng arp-scan gettext moreutils jq net-tools udpcast libev-devel shim-x64 grub2-efi-x64 grub2-efi-x64-modules )
+		DEPENDENCIES=( curl rsync btrfs-progs procps-ng arp-scan gettext moreutils jq net-tools udpcast libev-devel shim-x64 grub2-efi-x64 grub2-efi-x64-modules gawk )
 		# Repositorios para PHP 7 en CentOS.
 		[ "$OSDISTRIB" == "centos" ] && UPDATEPKGLIST="yum update -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-$OSVERSION.noarch.rpm http://rpms.remirepo.net/enterprise/remi-release-$OSVERSION.rpm"
 		INSTALLPKGS="yum install -y"
@@ -301,7 +301,6 @@ function importSqlFile()
         local tmpfile=$(mktemp)
         local mycnf=/tmp/.my.cnf.$$
         local status
-	local APIKEY=$(php -r 'echo md5(uniqid(rand(), true));')
 
         if [ ! -r $sqlfile ]; then
                 errorAndLog "${FUNCNAME}(): Unable to read $sqlfile!!"
@@ -311,8 +310,7 @@ function importSqlFile()
         echoAndLog "${FUNCNAME}(): importing SQL file to ${database}..."
         chmod 600 $tmpfile
         sed -e "s/SERVERIP/$SERVERIP/g" -e "s/DBUSER/$OPENGNSYS_DB_USER/g" \
-            -e "s/DBPASSWORD/$OPENGNSYS_DB_PASSWD/g" \
-            -e "s/APIKEY/$APIKEY/g" -e "s/REPOKEY/$REPOKEY/g" $sqlfile > $tmpfile
+            -e "s/DBPASSWORD/$OPENGNSYS_DB_PASSWD/g" $sqlfile > $tmpfile
 	# Componer fichero con credenciales de conexión.  
 	touch $mycnf
 	chmod 600 $mycnf
@@ -452,9 +450,11 @@ function checkNetworkConnection()
 {
 	OPENGNSYS_SERVER=${OPENGNSYS_SERVER:-"opengnsys.es"}
 	if which curl &>/dev/null; then
-		curl --connect-timeout 10 -s $OPENGNSYS_SERVER -o /dev/null
+		curl --connect-timeout 10 -s "https://$OPENGNSYS_SERVER" -o /dev/null && \
+			curl --connect-timeout 10 -s "http://$OPENGNSYS_SERVER" -o /dev/null
 	elif which wget &>/dev/null; then
-		wget --spider -q $OPENGNSYS_SERVER
+		wget --spider -q "https://$OPENGNSYS_SERVER" && \
+			wget --spider -q "http://$OPENGNSYS_SERVER"
 	else
 		echoAndLog "${FUNCNAME}(): Cannot execute \"wget\" nor \"curl\"."
 		return 1
@@ -847,7 +847,6 @@ function updateDatabase()
 	fi
 
 	popd >/dev/null
-	REPOKEY=$(php -r 'echo md5(uniqid(rand(), true));')
 	if [ -n "$FILES" ]; then
 		for file in $FILES; do
 			importSqlFile $OPENGNSYS_DBUSER $OPENGNSYS_DBPASSWORD $OPENGNSYS_DATABASE $DBDIR/$file
@@ -944,8 +943,6 @@ function updateServerFiles()
             BIOSPXEDIR="$INSTALL_TARGET/tftpboot/menu.lst/templates"
 	    mv $BIOSPXEDIR/01 $BIOSPXEDIR/10
 	    sed -i "s/\bMBR\b/1hd/" $BIOSPXEDIR/10
-	    sed -i "s/\b1hd-1partition\b/1hd-1os/" $BIOSPXEDIR/11
-	    sed -i "s/\b1hd-2partition\b/1hd-2os/" $BIOSPXEDIR/12
 	fi
 }
 
@@ -988,10 +985,8 @@ function compileServices()
 		hayErrores=1
 	fi
 	popd
-	# Parar antiguo servicio de repositorio y añadir clave de acceso REST en su fichero de configuración.
+	# Parar antiguo servicio de repositorio.
 	pgrep ogAdmRepo > /dev/null && service="ogAdmRepo" $STOPSERVICE
-	sed -i -n -e "/^ApiToken=/!p" -e "$ a\ApiToken=$REPOKEY" $INSTALL_TARGET/etc/ogAdmRepo.cfg
-	sed -i -n -e "/^APITOKEN=/!p" -e "$ a\APITOKEN=$REPOKEY" $INSTALL_TARGET/etc/ogAdmServer.cfg
 	# Compilar OpenGnsys Agent
 	echoAndLog "${FUNCNAME}(): Recompiling OpenGnsys Server Agent"
 	pushd $WORKDIR/opengnsys/admin/Sources/Services/ogAdmAgent
@@ -1144,7 +1139,7 @@ function updateSummary()
 	fi
 	echoAndLog "Warnings:"
 	echoAndLog " - You must to clear web browser cache before loading OpenGnsys page"
-	echoAndLog " - Generated new key to access Repository REST API (file ogAdmRepo.cfg)"
+	echoAndLog " - Run \"settoken\" script to update authentication tokens"
 	if [ -n "$INSTALLEDOGLIVE" ]; then
 		echoAndLog " - Installed new ogLive Client: $INSTALLEDOGLIVE"
 	fi
@@ -1190,7 +1185,7 @@ if [ "$PROGRAMDIR" != "$INSTALL_TARGET/bin" ]; then
 	checkAutoUpdate
 	if [ $? -ne 0 ]; then
 		echoAndLog "OpenGnsys updater has been overwritten"
-		echoAndLog "Please, rerun this script"
+		echoAndLog "Please, run this script again"
 		exit
 	fi
 fi

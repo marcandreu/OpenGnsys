@@ -602,7 +602,7 @@ bool actualizaConfiguracion(Database db, Table tbl, char *cfg, int ido)
 
 		lon += sprintf(tbPar + lon, "(%s, %s),", disk, par);
 
-		sprintf(sqlstr, "SELECT numdisk, numpar, codpar, tamano, uso, idsistemafichero, idnombreso"
+		sprintf(sqlstr, "SELECT numdisk, numpar, tamano, uso, idsistemafichero, idnombreso"
 				"  FROM ordenadores_particiones"
 				" WHERE idordenador=%d AND numdisk=%s AND numpar=%s",
 				ido, disk, par);
@@ -627,32 +627,25 @@ bool actualizaConfiguracion(Database db, Table tbl, char *cfg, int ido)
 			}
 		} else { // Existe el registro
 			swu = true; // Se supone que algún dato ha cambiado
-			if (!tbl.Get("codpar", dato)) { // Toma dato
+			if (!tbl.Get("tamano", dato)) { // Toma dato
 				tbl.GetErrorErrStr(msglog); // Error al acceder al registro
 				og_info(msglog);
 				return false;
 			}
-			if (strtol(cpt, NULL, 16) == dato) {// Parámetro tipo de partición (hexadecimal) igual al almacenado (decimal)
-				if (!tbl.Get("tamano", dato)) { // Toma dato
+			if (atoi(tam) == dato) { // Parámetro tamaño igual al almacenado
+				if (!tbl.Get("idsistemafichero", dato)) { // Toma dato
 					tbl.GetErrorErrStr(msglog); // Error al acceder al registro
 					og_info(msglog);
 					return false;
 				}
-				if (atoi(tam) == dato) {// Parámetro tamaño igual al almacenado
-					if (!tbl.Get("idsistemafichero", dato)) { // Toma dato
+				if (idsfi == dato) { // Parámetro sistema de fichero igual al almacenado
+					if (!tbl.Get("idnombreso", dato)) { // Toma dato
 						tbl.GetErrorErrStr(msglog); // Error al acceder al registro
 						og_info(msglog);
 						return false;
 					}
-					if (idsfi == dato) {// Parámetro sistema de fichero igual al almacenado
-						if (!tbl.Get("idnombreso", dato)) { // Toma dato
-							tbl.GetErrorErrStr(msglog); // Error al acceder al registro
-							og_info(msglog);
-							return false;
-						}
-						if (idsoi == dato) {// Parámetro sistema de fichero distinto al almacenado
-							swu = false; // Todos los parámetros de la partición son iguales, no se actualiza
-						}
+					if (idsoi == dato) { // Parámetro sistema operativo distinto al almacenado
+						swu = false; // Todos los parámetros de la partición son iguales, no se actualiza
 					}
 				}
 			}
@@ -670,9 +663,10 @@ bool actualizaConfiguracion(Database db, Table tbl, char *cfg, int ido)
 					cpt, tam, uso, idsfi, idsoi, ido, disk, par);
 			} else {  // Actualizar porcentaje de uso.
 				sprintf(sqlstr, "UPDATE ordenadores_particiones SET "
+					" codpar=0x%s,"
 					" uso=%s"
 					" WHERE idordenador=%d AND numdisk=%s AND numpar=%s",
-					uso, ido, disk, par);
+					cpt, uso, ido, disk, par);
 			}
 			if (!db.Execute(sqlstr, tbl)) {
 				db.GetErrorErrStr(msglog);
@@ -1068,13 +1062,25 @@ static bool respuestaEstandar(TRAMA *ptrTrama, char *iph, char *ido, Database db
 	struct tm* st;
 	int idaccion;
 
-	ids = copiaParametro("ids",ptrTrama); // Toma identificador de la sesión
+	ids = copiaParametro("ids",ptrTrama);
+	res = copiaParametro("res",ptrTrama);
 
-	if (ids == NULL) // No existe seguimiento de la acción
+	if (ids == NULL) {
+		if (atoi(res) == ACCION_FALLIDA) {
+			liberaMemoria(res);
+			return false;
+		}
+		liberaMemoria(res);
 		return true;
+	}
 
-	if (atoi(ids) == 0){ // No existe seguimiento de la acción
+	if (atoi(ids) == 0) {
 		liberaMemoria(ids);
+		if (atoi(res) == ACCION_FALLIDA) {
+			liberaMemoria(res);
+			return false;
+		}
+		liberaMemoria(res);
 		return true;
 	}
 
@@ -1103,7 +1109,6 @@ static bool respuestaEstandar(TRAMA *ptrTrama, char *iph, char *ido, Database db
 	sprintf(fechafin, "%d/%d/%d %d:%d:%d", st->tm_year + 1900, st->tm_mon + 1,
 			st->tm_mday, st->tm_hour, st->tm_min, st->tm_sec);
 
-	res = copiaParametro("res",ptrTrama); // Toma resultado
 	der = copiaParametro("der",ptrTrama); // Toma descripción del error (si hubiera habido)
 	
 	sprintf(sqlstr,
@@ -1121,10 +1126,10 @@ static bool respuestaEstandar(TRAMA *ptrTrama, char *iph, char *ido, Database db
 	}
 	
 	liberaMemoria(der);
-	
+
 	if (atoi(res) == ACCION_FALLIDA) {
 		liberaMemoria(res);
-		return false; // Error en la ejecución del comando
+		return false;
 	}
 
 	liberaMemoria(res);
@@ -1439,27 +1444,6 @@ static bool RESPUESTA_Arrancar(TRAMA* ptrTrama, struct og_client *cli)
 	return true;
 }
 // ________________________________________________________________________________________________________
-// Función: Apagar
-//
-//	Descripción:
-//		Procesa el comando Apagar
-//	Parámetros:
-//		- socket_c: Socket de la consola al envió el mensaje
-//		- ptrTrama: Trama recibida por el servidor con el contenido y los parámetros
-//	Devuelve:
-//		true: Si el proceso es correcto
-//		false: En caso de ocurrir algún error
-// ________________________________________________________________________________________________________
-static bool Apagar(TRAMA* ptrTrama, struct og_client *cli)
-{
-	if (!enviaComando(ptrTrama, CLIENTE_OCUPADO)) {
-		respuestaConsola(og_client_socket(cli), ptrTrama, false);
-		return false;
-	}
-	respuestaConsola(og_client_socket(cli), ptrTrama, true);
-	return true;
-}
-// ________________________________________________________________________________________________________
 // Función: RESPUESTA_Apagar
 //
 //	Descripción:
@@ -1595,27 +1579,6 @@ static bool RESPUESTA_IniciarSesion(TRAMA* ptrTrama, struct og_client *cli)
 	liberaMemoria(ido);
 		
 	db.Close(); // Cierra conexión
-	return true;
-}
-// ________________________________________________________________________________________________________
-// Función: CrearImagen
-//
-//	Descripción:
-//		Crea una imagen de una partición de un disco y la guarda o bien en un repositorio
-//	Parámetros:
-//		- socket_c: Socket de la consola al envió el mensaje
-//		- ptrTrama: Trama recibida por el servidor con el contenido y los parámetros
-//	Devuelve:
-//		true: Si el proceso es correcto
-//		false: En caso de ocurrir algún error
-// ________________________________________________________________________________________________________
-static bool CrearImagen(TRAMA* ptrTrama, struct og_client *cli)
-{
-	if (!enviaComando(ptrTrama, CLIENTE_OCUPADO)) {
-		respuestaConsola(og_client_socket(cli), ptrTrama, false);
-		return false;
-	}
-	respuestaConsola(og_client_socket(cli), ptrTrama, true);
 	return true;
 }
 // ________________________________________________________________________________________________________
@@ -1899,27 +1862,6 @@ static bool RESPUESTA_CrearSoftIncremental(TRAMA* ptrTrama, struct og_client *cl
 		return false;
 	}
 	db.Close(); // Cierra conexión
-	return true;
-}
-// ________________________________________________________________________________________________________
-// Función: RestaurarImagen
-//
-//	Descripción:
-//		Restaura una imagen en una partición
-//	Parámetros:
-//		- socket_c: Socket de la consola al envió el mensaje
-//		- ptrTrama: Trama recibida por el servidor con el contenido y los parámetros
-//	Devuelve:
-//		true: Si el proceso es correcto
-//		false: En caso de ocurrir algún error
-// ________________________________________________________________________________________________________
-static bool RestaurarImagen(TRAMA* ptrTrama, struct og_client *cli)
-{
-	if (!enviaComando(ptrTrama, CLIENTE_OCUPADO)) {
-		respuestaConsola(og_client_socket(cli), ptrTrama, false);
-		return false;
-	}
-	respuestaConsola(og_client_socket(cli), ptrTrama, true);
 	return true;
 }
 // ________________________________________________________________________________________________________
@@ -2243,27 +2185,6 @@ static bool RESPUESTA_EjecutarScript(TRAMA* ptrTrama, struct og_client *cli)
 
 	
 	db.Close(); // Cierra conexión
-	return true;
-}
-// ________________________________________________________________________________________________________
-// Función: InventarioHardware
-//
-//	Descripción:
-//		Solicita al cliente un inventario de su hardware
-//	Parámetros:
-//		- socket_c: Socket de la consola al envió el mensaje
-//		- ptrTrama: Trama recibida por el servidor con el contenido y los parámetros
-//	Devuelve:
-//		true: Si el proceso es correcto
-//		false: En caso de ocurrir algún error
-// ________________________________________________________________________________________________________
-static bool InventarioHardware(TRAMA* ptrTrama, struct og_client *cli)
-{
-	if (!enviaComando(ptrTrama, CLIENTE_OCUPADO)) {
-		respuestaConsola(og_client_socket(cli), ptrTrama, false);
-		return false;
-	}
-	respuestaConsola(og_client_socket(cli), ptrTrama, true);
 	return true;
 }
 // ________________________________________________________________________________________________________
@@ -2615,27 +2536,6 @@ bool cuestionPerfilHardware(Database db, Table tbl, char *idc, char *ido,
 		return false;
 	}
 	liberaMemoria(sqlstr);
-	return true;
-}
-// ________________________________________________________________________________________________________
-// Función: InventarioSoftware
-//
-//	Descripción:
-//		Solicita al cliente un inventario de su software
-//	Parámetros:
-//		- socket_c: Socket de la consola al envió el mensaje
-//		- ptrTrama: Trama recibida por el servidor con el contenido y los parámetros
-//	Devuelve:
-//		true: Si el proceso es correcto
-//		false: En caso de ocurrir algún error
-// ________________________________________________________________________________________________________
-static bool InventarioSoftware(TRAMA* ptrTrama, struct og_client *cli)
-{
-	if (!enviaComando(ptrTrama, CLIENTE_OCUPADO)) {
-		respuestaConsola(og_client_socket(cli), ptrTrama, false);
-		return false;
-	}
-	respuestaConsola(og_client_socket(cli), ptrTrama, true);
 	return true;
 }
 // ________________________________________________________________________________________________________
@@ -3162,17 +3062,14 @@ static struct {
 	{ "ComandosPendientes",			ComandosPendientes,	},
 	{ "DisponibilidadComandos",		DisponibilidadComandos, },
 	{ "RESPUESTA_Arrancar",			RESPUESTA_Arrancar,	},
-	{ "Apagar",				Apagar,			},
 	{ "RESPUESTA_Apagar",			RESPUESTA_Apagar,	},
 	{ "RESPUESTA_Reiniciar",		RESPUESTA_Reiniciar,	},
 	{ "RESPUESTA_IniciarSesion",		RESPUESTA_IniciarSesion, },
-	{ "CrearImagen",			CrearImagen,		},
 	{ "RESPUESTA_CrearImagen",		RESPUESTA_CrearImagen,	},
 	{ "CrearImagenBasica",			CrearImagenBasica,	},
 	{ "RESPUESTA_CrearImagenBasica",	RESPUESTA_CrearImagenBasica, },
 	{ "CrearSoftIncremental",		CrearSoftIncremental,	},
 	{ "RESPUESTA_CrearSoftIncremental",	RESPUESTA_CrearSoftIncremental, },
-	{ "RestaurarImagen",			RestaurarImagen,	},
 	{ "RESPUESTA_RestaurarImagen",		RESPUESTA_RestaurarImagen },
 	{ "RestaurarImagenBasica",		RestaurarImagenBasica, },
 	{ "RESPUESTA_RestaurarImagenBasica",	RESPUESTA_RestaurarImagenBasica, },
@@ -3182,9 +3079,7 @@ static struct {
 	{ "RESPUESTA_Configurar",		RESPUESTA_Configurar,	},
 	{ "EjecutarScript",			EjecutarScript,		},
 	{ "RESPUESTA_EjecutarScript",		RESPUESTA_EjecutarScript, },
-	{ "InventarioHardware",			InventarioHardware, 	},
 	{ "RESPUESTA_InventarioHardware",	RESPUESTA_InventarioHardware, },
-	{ "InventarioSoftware",			InventarioSoftware	},
 	{ "RESPUESTA_InventarioSoftware",	RESPUESTA_InventarioSoftware, },
 	{ "enviaArchivo",			enviaArchivo,		},
 	{ "recibeArchivo",			recibeArchivo, 		},
@@ -3350,6 +3245,30 @@ static int og_client_state_process_payload(struct og_client *cli)
 }
 
 #define OG_CLIENTS_MAX	4096
+#define OG_PARTITION_MAX 4
+
+struct og_partition {
+	const char	*number;
+	const char	*code;
+	const char	*size;
+	const char	*filesystem;
+	const char	*format;
+};
+
+struct og_sync_params {
+	const char	*sync;
+	const char	*diff;
+	const char	*remove;
+	const char	*compress;
+	const char	*cleanup;
+	const char	*cache;
+	const char	*cleanup_cache;
+	const char	*remove_dst;
+	const char	*diff_id;
+	const char	*diff_name;
+	const char	*path;
+	const char	*method;
+};
 
 struct og_msg_params {
 	const char	*ips_array[OG_CLIENTS_MAX];
@@ -3359,7 +3278,57 @@ struct og_msg_params {
 	char		run_cmd[4096];
 	const char	*disk;
 	const char	*partition;
+	const char	*repository;
+	const char	*name;
+	const char	*id;
+	const char	*code;
+	const char	*type;
+	const char	*profile;
+	const char	*cache;
+	const char	*cache_size;
+	bool		echo;
+	struct og_partition	partition_setup[OG_PARTITION_MAX];
+	struct og_sync_params sync_setup;
+	uint64_t	flags;
 };
+
+#define OG_REST_PARAM_ADDR			(1UL << 0)
+#define OG_REST_PARAM_MAC			(1UL << 1)
+#define OG_REST_PARAM_WOL_TYPE			(1UL << 2)
+#define OG_REST_PARAM_RUN_CMD			(1UL << 3)
+#define OG_REST_PARAM_DISK			(1UL << 4)
+#define OG_REST_PARAM_PARTITION			(1UL << 5)
+#define OG_REST_PARAM_REPO			(1UL << 6)
+#define OG_REST_PARAM_NAME			(1UL << 7)
+#define OG_REST_PARAM_ID			(1UL << 8)
+#define OG_REST_PARAM_CODE			(1UL << 9)
+#define OG_REST_PARAM_TYPE			(1UL << 10)
+#define OG_REST_PARAM_PROFILE			(1UL << 11)
+#define OG_REST_PARAM_CACHE			(1UL << 12)
+#define OG_REST_PARAM_CACHE_SIZE		(1UL << 13)
+#define OG_REST_PARAM_PART_0			(1UL << 14)
+#define OG_REST_PARAM_PART_1			(1UL << 15)
+#define OG_REST_PARAM_PART_2			(1UL << 16)
+#define OG_REST_PARAM_PART_3			(1UL << 17)
+#define OG_REST_PARAM_SYNC_SYNC			(1UL << 18)
+#define OG_REST_PARAM_SYNC_DIFF			(1UL << 19)
+#define OG_REST_PARAM_SYNC_REMOVE		(1UL << 20)
+#define OG_REST_PARAM_SYNC_COMPRESS		(1UL << 21)
+#define OG_REST_PARAM_SYNC_CLEANUP		(1UL << 22)
+#define OG_REST_PARAM_SYNC_CACHE		(1UL << 23)
+#define OG_REST_PARAM_SYNC_CLEANUP_CACHE	(1UL << 24)
+#define OG_REST_PARAM_SYNC_REMOVE_DST		(1UL << 25)
+#define OG_REST_PARAM_SYNC_DIFF_ID		(1UL << 26)
+#define OG_REST_PARAM_SYNC_DIFF_NAME		(1UL << 27)
+#define OG_REST_PARAM_SYNC_PATH			(1UL << 28)
+#define OG_REST_PARAM_SYNC_METHOD		(1UL << 29)
+#define OG_REST_PARAM_ECHO			(1UL << 30)
+
+static bool og_msg_params_validate(const struct og_msg_params *params,
+				   const uint64_t flags)
+{
+	return (params->flags & flags) == flags;
+}
 
 static int og_json_parse_clients(json_t *element, struct og_msg_params *params)
 {
@@ -3376,6 +3345,153 @@ static int og_json_parse_clients(json_t *element, struct og_msg_params *params)
 
 		params->ips_array[params->ips_array_len++] =
 			json_string_value(k);
+
+		params->flags |= OG_REST_PARAM_ADDR;
+	}
+
+	return 0;
+}
+
+static int og_json_parse_string(json_t *element, const char **str)
+{
+	if (json_typeof(element) != JSON_STRING)
+		return -1;
+
+	*str = json_string_value(element);
+	return 0;
+}
+
+static int og_json_parse_bool(json_t *element, bool *value)
+{
+	if (json_typeof(element) == JSON_TRUE)
+		*value = true;
+	else if (json_typeof(element) == JSON_FALSE)
+		*value = false;
+	else
+		return -1;
+
+	return 0;
+}
+
+static int og_json_parse_sync_params(json_t *element,
+                                     struct og_msg_params *params)
+{
+	const char *key;
+	json_t *value;
+	int err = 0;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "sync")) {
+			err = og_json_parse_string(value, &params->sync_setup.sync);
+			params->flags |= OG_REST_PARAM_SYNC_SYNC;
+		} else if (!strcmp(key, "diff")) {
+			err = og_json_parse_string(value, &params->sync_setup.diff);
+			params->flags |= OG_REST_PARAM_SYNC_DIFF;
+		} else if (!strcmp(key, "remove")) {
+			err = og_json_parse_string(value, &params->sync_setup.remove);
+			params->flags |= OG_REST_PARAM_SYNC_REMOVE;
+		} else if (!strcmp(key, "compress")) {
+			err = og_json_parse_string(value, &params->sync_setup.compress);
+			params->flags |= OG_REST_PARAM_SYNC_COMPRESS;
+		} else if (!strcmp(key, "cleanup")) {
+			err = og_json_parse_string(value, &params->sync_setup.cleanup);
+			params->flags |= OG_REST_PARAM_SYNC_CLEANUP;
+		} else if (!strcmp(key, "cache")) {
+			err = og_json_parse_string(value, &params->sync_setup.cache);
+			params->flags |= OG_REST_PARAM_SYNC_CACHE;
+		} else if (!strcmp(key, "cleanup_cache")) {
+			err = og_json_parse_string(value, &params->sync_setup.cleanup_cache);
+			params->flags |= OG_REST_PARAM_SYNC_CLEANUP_CACHE;
+		} else if (!strcmp(key, "remove_dst")) {
+			err = og_json_parse_string(value, &params->sync_setup.remove_dst);
+			params->flags |= OG_REST_PARAM_SYNC_REMOVE_DST;
+		} else if (!strcmp(key, "diff_id")) {
+			err = og_json_parse_string(value, &params->sync_setup.diff_id);
+			params->flags |= OG_REST_PARAM_SYNC_DIFF_ID;
+		} else if (!strcmp(key, "diff_name")) {
+			err = og_json_parse_string(value, &params->sync_setup.diff_name);
+			params->flags |= OG_REST_PARAM_SYNC_DIFF_NAME;
+		} else if (!strcmp(key, "path")) {
+			err = og_json_parse_string(value, &params->sync_setup.path);
+			params->flags |= OG_REST_PARAM_SYNC_PATH;
+		} else if (!strcmp(key, "method")) {
+			err = og_json_parse_string(value, &params->sync_setup.method);
+			params->flags |= OG_REST_PARAM_SYNC_METHOD;
+		}
+
+		if (err != 0)
+			return err;
+	}
+	return err;
+}
+
+#define OG_PARAM_PART_NUMBER			(1UL << 0)
+#define OG_PARAM_PART_CODE			(1UL << 1)
+#define OG_PARAM_PART_FILESYSTEM		(1UL << 2)
+#define OG_PARAM_PART_SIZE			(1UL << 3)
+#define OG_PARAM_PART_FORMAT			(1UL << 4)
+
+static int og_json_parse_partition(json_t *element,
+				   struct og_msg_params *params,
+				   unsigned int i)
+{
+	struct og_partition *part = &params->partition_setup[i];
+	uint64_t flags = 0UL;
+	const char *key;
+	json_t *value;
+	int err = 0;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &part->number);
+			flags |= OG_PARAM_PART_NUMBER;
+		} else if (!strcmp(key, "code")) {
+			err = og_json_parse_string(value, &part->code);
+			flags |= OG_PARAM_PART_CODE;
+		} else if (!strcmp(key, "filesystem")) {
+			err = og_json_parse_string(value, &part->filesystem);
+			flags |= OG_PARAM_PART_FILESYSTEM;
+		} else if (!strcmp(key, "size")) {
+			err = og_json_parse_string(value, &part->size);
+			flags |= OG_PARAM_PART_SIZE;
+		} else if (!strcmp(key, "format")) {
+			err = og_json_parse_string(value, &part->format);
+			flags |= OG_PARAM_PART_FORMAT;
+		}
+
+		if (err < 0)
+			return err;
+	}
+
+	if (flags != (OG_PARAM_PART_NUMBER |
+		      OG_PARAM_PART_CODE |
+		      OG_PARAM_PART_FILESYSTEM |
+		      OG_PARAM_PART_SIZE |
+		      OG_PARAM_PART_FORMAT))
+		return -1;
+
+	params->flags |= (OG_REST_PARAM_PART_0 << i);
+
+	return err;
+}
+
+static int og_json_parse_partition_setup(json_t *element,
+					 struct og_msg_params *params)
+{
+	unsigned int i;
+	json_t *k;
+
+	if (json_typeof(element) != JSON_ARRAY)
+		return -1;
+
+	for (i = 0; i < json_array_size(element) && i < OG_PARTITION_MAX; ++i) {
+		k = json_array_get(element, i);
+
+		if (json_typeof(k) != JSON_OBJECT)
+			return -1;
+
+		if (og_json_parse_partition(k, params, i) != 0)
+			return -1;
 	}
 	return 0;
 }
@@ -3418,6 +3534,9 @@ static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
 		if (err < 0)
 			break;
 	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
 
 	return og_cmd_legacy_send(params, "Sondeo", CLIENTE_APAGADO);
 }
@@ -3505,12 +3624,16 @@ static int og_json_parse_target(json_t *element, struct og_msg_params *params)
 
 			params->ips_array[params->ips_array_len] =
 				json_string_value(value);
+
+			params->flags |= OG_REST_PARAM_ADDR;
 		} else if (!strcmp(key, "mac")) {
 			if (json_typeof(value) != JSON_STRING)
 				return -1;
 
 			params->mac_array[params->ips_array_len] =
 				json_string_value(value);
+
+			params->flags |= OG_REST_PARAM_MAC;
 		}
 	}
 
@@ -3556,6 +3679,8 @@ static int og_json_parse_type(json_t *element, struct og_msg_params *params)
 	else if (!strcmp(type, "broadcast"))
 		params->wol_type = "1";
 
+	params->flags |= OG_REST_PARAM_WOL_TYPE;
+
 	return 0;
 }
 
@@ -3579,6 +3704,11 @@ static int og_cmd_wol(json_t *element, struct og_msg_params *params)
 			break;
 	}
 
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_MAC |
+					    OG_REST_PARAM_WOL_TYPE))
+		return -1;
+
 	if (!Levanta((char **)params->ips_array, (char **)params->mac_array,
 		     params->ips_array_len, (char *)params->wol_type))
 		return -1;
@@ -3593,6 +3723,8 @@ static int og_json_parse_run(json_t *element, struct og_msg_params *params)
 
 	snprintf(params->run_cmd, sizeof(params->run_cmd), "%s",
 		 json_string_value(element));
+
+	params->flags |= OG_REST_PARAM_RUN_CMD;
 
 	return 0;
 }
@@ -3612,19 +3744,36 @@ static int og_cmd_run_post(json_t *element, struct og_msg_params *params)
 	json_object_foreach(element, key, value) {
 		if (!strcmp(key, "clients"))
 			err = og_json_parse_clients(value, params);
-		if (!strcmp(key, "run"))
+		else if (!strcmp(key, "run"))
 			err = og_json_parse_run(value, params);
+		else if (!strcmp(key, "echo")) {
+			err = og_json_parse_bool(value, &params->echo);
+			params->flags |= OG_REST_PARAM_ECHO;
+                }
 
 		if (err < 0)
 			break;
 	}
 
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_RUN_CMD |
+					    OG_REST_PARAM_ECHO))
+		return -1;
+
 	for (i = 0; i < params->ips_array_len; i++) {
 		len = snprintf(iph + strlen(iph), sizeof(iph), "%s;",
 			       params->ips_array[i]);
 	}
-	len = snprintf(buf, sizeof(buf), "nfn=ConsolaRemota\riph=%s\rscp=%s\r",
-		       iph, params->run_cmd);
+
+	if (params->echo) {
+		len = snprintf(buf, sizeof(buf),
+			       "nfn=ConsolaRemota\riph=%s\rscp=%s\r",
+			       iph, params->run_cmd);
+	} else {
+		len = snprintf(buf, sizeof(buf),
+			       "nfn=EjecutarScript\riph=%s\rscp=%s\r",
+			       iph, params->run_cmd);
+	}
 
 	msg = og_msg_alloc(buf, len);
 	if (!msg)
@@ -3672,6 +3821,9 @@ static int og_cmd_run_get(json_t *element, struct og_msg_params *params,
 		if (err < 0)
 			return err;
 	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
 
 	array = json_array();
 	if (!array)
@@ -3731,27 +3883,6 @@ static int og_cmd_run_get(json_t *element, struct og_msg_params *params,
 	return 0;
 }
 
-static int og_json_parse_disk(json_t *element, struct og_msg_params *params)
-{
-	if (json_typeof(element) != JSON_STRING)
-		return -1;
-
-	params->disk = json_string_value(element);
-
-	return 0;
-}
-
-static int og_json_parse_partition(json_t *element,
-				   struct og_msg_params *params)
-{
-	if (json_typeof(element) != JSON_STRING)
-		return -1;
-
-	params->partition = json_string_value(element);
-
-	return 0;
-}
-
 static int og_cmd_session(json_t *element, struct og_msg_params *params)
 {
 	char buf[4096], iph[4096];
@@ -3768,14 +3899,21 @@ static int og_cmd_session(json_t *element, struct og_msg_params *params)
 		if (!strcmp(key, "clients")) {
 			err = og_json_parse_clients(value, params);
 		} else if (!strcmp(key, "disk")) {
-			err = og_json_parse_disk(value, params);
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
 		} else if (!strcmp(key, "partition")) {
-			err = og_json_parse_partition(value, params);
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
 		}
 
 		if (err < 0)
 			return err;
 	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION))
+		return -1;
 
 	for (i = 0; i < params->ips_array_len; i++) {
 		snprintf(iph + strlen(iph), sizeof(iph), "%s;",
@@ -3815,6 +3953,9 @@ static int og_cmd_poweroff(json_t *element, struct og_msg_params *params)
 			break;
 	}
 
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
+
 	return og_cmd_legacy_send(params, "Apagar", CLIENTE_OCUPADO);
 }
 
@@ -3834,6 +3975,9 @@ static int og_cmd_refresh(json_t *element, struct og_msg_params *params)
 		if (err < 0)
 			break;
 	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
 
 	return og_cmd_legacy_send(params, "Actualizar", CLIENTE_APAGADO);
 }
@@ -3855,6 +3999,9 @@ static int og_cmd_reboot(json_t *element, struct og_msg_params *params)
 			break;
 	}
 
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
+
 	return og_cmd_legacy_send(params, "Reiniciar", CLIENTE_OCUPADO);
 }
 
@@ -3874,6 +4021,9 @@ static int og_cmd_stop(json_t *element, struct og_msg_params *params)
 		if (err < 0)
 			break;
 	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
 
 	return og_cmd_legacy_send(params, "Purgar", CLIENTE_APAGADO);
 }
@@ -3895,18 +4045,265 @@ static int og_cmd_hardware(json_t *element, struct og_msg_params *params)
 			break;
 	}
 
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
+
 	return og_cmd_legacy_send(params, "InventarioHardware",
 				  CLIENTE_OCUPADO);
 }
 
 static int og_cmd_software(json_t *element, struct og_msg_params *params)
 {
+	char buf[4096] = {};
+	int err = 0, len;
 	const char *key;
 	json_t *value;
-	int err = 0;
+	TRAMA *msg;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "clients"))
+			err = og_json_parse_clients(value, params);
+		else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		}
+		else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+		       "nfn=InventarioSoftware\rdsk=%s\rpar=%s\r",
+		       params->disk, params->partition);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_create_image(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "repository")) {
+			err = og_json_parse_string(value, &params->repository);
+			params->flags |= OG_REST_PARAM_REPO;
+		} else if (!strcmp(key, "clients")) {
+			err = og_json_parse_clients(value, params);
+		} else if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "code")) {
+			err = og_json_parse_string(value, &params->code);
+			params->flags |= OG_REST_PARAM_CODE;
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION |
+					    OG_REST_PARAM_CODE |
+					    OG_REST_PARAM_ID |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_REPO))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+			"nfn=CrearImagen\rdsk=%s\rpar=%s\rcpt=%s\ridi=%s\rnci=%s\ripr=%s\r",
+			params->disk, params->partition, params->code,
+			params->id, params->name, params->repository);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_restore_image(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "repository")) {
+			err = og_json_parse_string(value, &params->repository);
+			params->flags |= OG_REST_PARAM_REPO;
+		} else if (!strcmp(key, "clients")) {
+			err = og_json_parse_clients(value, params);
+		} else if (!strcmp(key, "type")) {
+			err = og_json_parse_string(value, &params->type);
+			params->flags |= OG_REST_PARAM_TYPE;
+		} else if (!strcmp(key, "profile")) {
+			err = og_json_parse_string(value, &params->profile);
+			params->flags |= OG_REST_PARAM_PROFILE;
+		} else if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_REPO |
+					    OG_REST_PARAM_TYPE |
+					    OG_REST_PARAM_PROFILE |
+					    OG_REST_PARAM_ID))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+		       "nfn=RestaurarImagen\ridi=%s\rdsk=%s\rpar=%s\rifs=%s\r"
+		       "nci=%s\ripr=%s\rptc=%s\r",
+		       params->id, params->disk, params->partition,
+		       params->profile, params->name,
+		       params->repository, params->type);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_setup(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "clients")) {
+			err = og_json_parse_clients(value, params);
+		} else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "cache")) {
+			err = og_json_parse_string(value, &params->cache);
+			params->flags |= OG_REST_PARAM_CACHE;
+		} else if (!strcmp(key, "cache_size")) {
+			err = og_json_parse_string(value, &params->cache_size);
+			params->flags |= OG_REST_PARAM_CACHE_SIZE;
+		} else if (!strcmp(key, "partition_setup")) {
+			err = og_json_parse_partition_setup(value, params);
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_CACHE |
+					    OG_REST_PARAM_CACHE_SIZE |
+					    OG_REST_PARAM_PART_0 |
+					    OG_REST_PARAM_PART_1 |
+					    OG_REST_PARAM_PART_2 |
+					    OG_REST_PARAM_PART_3))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+			"nfn=Configurar\rdsk=%s\rcfg=dis=%s*che=%s*tch=%s!",
+			params->disk, params->disk, params->cache, params->cache_size);
+
+	for (unsigned int i = 0; i < OG_PARTITION_MAX; ++i) {
+		const struct og_partition *part = &params->partition_setup[i];
+
+		len += snprintf(buf + strlen(buf), sizeof(buf),
+			"par=%s*cpt=%s*sfi=%s*tam=%s*ope=%s%%",
+			part->number, part->code, part->filesystem, part->size, part->format);
+	}
+
+	msg = og_msg_alloc(buf, len + 1);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+			CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_run_schedule(json_t *element, struct og_msg_params *params)
+{
+	const char *key;
+	json_t *value;
+	int err = 0;
 
 	json_object_foreach(element, key, value) {
 		if (!strcmp(key, "clients"))
@@ -3916,8 +4313,350 @@ static int og_cmd_software(json_t *element, struct og_msg_params *params)
 			break;
 	}
 
-	return og_cmd_legacy_send(params, "InventarioSoftware",
-				  CLIENTE_OCUPADO);
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
+		return -1;
+
+	og_cmd_legacy_send(params, "EjecutaComandosPendientes", CLIENTE_OCUPADO);
+
+	return 0;
+}
+
+static int og_cmd_create_basic_image(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "clients")) {
+			err = og_json_parse_clients(value, params);
+		} else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		} else if (!strcmp(key, "code")) {
+			err = og_json_parse_string(value, &params->code);
+			params->flags |= OG_REST_PARAM_CODE;
+		} else if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "repository")) {
+			err = og_json_parse_string(value, &params->repository);
+			params->flags |= OG_REST_PARAM_REPO;
+		} else if (!strcmp(key, "sync_params")) {
+			err = og_json_parse_sync_params(value, params);
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION |
+					    OG_REST_PARAM_CODE |
+					    OG_REST_PARAM_ID |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_REPO |
+					    OG_REST_PARAM_SYNC_SYNC |
+					    OG_REST_PARAM_SYNC_DIFF |
+					    OG_REST_PARAM_SYNC_REMOVE |
+					    OG_REST_PARAM_SYNC_COMPRESS |
+					    OG_REST_PARAM_SYNC_CLEANUP |
+					    OG_REST_PARAM_SYNC_CACHE |
+					    OG_REST_PARAM_SYNC_CLEANUP_CACHE |
+					    OG_REST_PARAM_SYNC_REMOVE_DST))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+		       "nfn=CrearImagenBasica\rdsk=%s\rpar=%s\rcpt=%s\ridi=%s\r"
+		       "nci=%s\ripr=%s\rrti=\rmsy=%s\rwhl=%s\reli=%s\rcmp=%s\rbpi=%s\r"
+		       "cpc=%s\rbpc=%s\rnba=%s\r",
+		       params->disk, params->partition, params->code, params->id,
+		       params->name, params->repository, params->sync_setup.sync,
+		       params->sync_setup.diff, params->sync_setup.remove,
+		       params->sync_setup.compress, params->sync_setup.cleanup,
+		       params->sync_setup.cache, params->sync_setup.cleanup_cache,
+		       params->sync_setup.remove_dst);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_create_incremental_image(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "clients"))
+			err = og_json_parse_clients(value, params);
+		else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		} else if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "repository")) {
+			err = og_json_parse_string(value, &params->repository);
+			params->flags |= OG_REST_PARAM_REPO;
+		} else if (!strcmp(key, "sync_params")) {
+			err = og_json_parse_sync_params(value, params);
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION |
+					    OG_REST_PARAM_ID |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_REPO |
+					    OG_REST_PARAM_SYNC_SYNC |
+					    OG_REST_PARAM_SYNC_PATH |
+					    OG_REST_PARAM_SYNC_DIFF |
+					    OG_REST_PARAM_SYNC_DIFF_ID |
+					    OG_REST_PARAM_SYNC_DIFF_NAME |
+					    OG_REST_PARAM_SYNC_REMOVE |
+					    OG_REST_PARAM_SYNC_COMPRESS |
+					    OG_REST_PARAM_SYNC_CLEANUP |
+					    OG_REST_PARAM_SYNC_CACHE |
+					    OG_REST_PARAM_SYNC_CLEANUP_CACHE |
+					    OG_REST_PARAM_SYNC_REMOVE_DST))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+		       "nfn=CrearSoftIncremental\rdsk=%s\rpar=%s\ridi=%s\rnci=%s\r"
+		       "rti=%s\ripr=%s\ridf=%s\rncf=%s\rmsy=%s\rwhl=%s\reli=%s\rcmp=%s\r"
+		       "bpi=%s\rcpc=%s\rbpc=%s\rnba=%s\r",
+		       params->disk, params->partition, params->id, params->name,
+		       params->sync_setup.path, params->repository, params->sync_setup.diff_id,
+		       params->sync_setup.diff_name, params->sync_setup.sync,
+		       params->sync_setup.diff, params->sync_setup.remove_dst,
+		       params->sync_setup.compress, params->sync_setup.cleanup,
+		       params->sync_setup.cache, params->sync_setup.cleanup_cache,
+		       params->sync_setup.remove_dst);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_restore_basic_image(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "clients")) {
+			err = og_json_parse_clients(value, params);
+		} else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		} else if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "repository")) {
+			err = og_json_parse_string(value, &params->repository);
+			params->flags |= OG_REST_PARAM_REPO;
+		} else if (!strcmp(key, "profile")) {
+			err = og_json_parse_string(value, &params->profile);
+			params->flags |= OG_REST_PARAM_PROFILE;
+		} else if (!strcmp(key, "type")) {
+			err = og_json_parse_string(value, &params->type);
+			params->flags |= OG_REST_PARAM_TYPE;
+		} else if (!strcmp(key, "sync_params")) {
+			err = og_json_parse_sync_params(value, params);
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION |
+					    OG_REST_PARAM_ID |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_REPO |
+					    OG_REST_PARAM_PROFILE |
+					    OG_REST_PARAM_TYPE |
+					    OG_REST_PARAM_SYNC_PATH |
+					    OG_REST_PARAM_SYNC_METHOD |
+					    OG_REST_PARAM_SYNC_SYNC |
+					    OG_REST_PARAM_SYNC_DIFF |
+					    OG_REST_PARAM_SYNC_REMOVE |
+					    OG_REST_PARAM_SYNC_COMPRESS |
+					    OG_REST_PARAM_SYNC_CLEANUP |
+					    OG_REST_PARAM_SYNC_CACHE |
+					    OG_REST_PARAM_SYNC_CLEANUP_CACHE |
+					    OG_REST_PARAM_SYNC_REMOVE_DST))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+		       "nfn=RestaurarImagenBasica\rdsk=%s\rpar=%s\ridi=%s\rnci=%s\r"
+			   "ipr=%s\rifs=%s\rrti=%s\rmet=%s\rmsy=%s\rtpt=%s\rwhl=%s\r"
+			   "eli=%s\rcmp=%s\rbpi=%s\rcpc=%s\rbpc=%s\rnba=%s\r",
+		       params->disk, params->partition, params->id, params->name,
+			   params->repository, params->profile, params->sync_setup.path,
+			   params->sync_setup.method, params->sync_setup.sync, params->type,
+			   params->sync_setup.diff, params->sync_setup.remove,
+		       params->sync_setup.compress, params->sync_setup.cleanup,
+		       params->sync_setup.cache, params->sync_setup.cleanup_cache,
+		       params->sync_setup.remove_dst);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
+}
+
+static int og_cmd_restore_incremental_image(json_t *element, struct og_msg_params *params)
+{
+	char buf[4096] = {};
+	int err = 0, len;
+	const char *key;
+	json_t *value;
+	TRAMA *msg;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "clients")) {
+			err = og_json_parse_clients(value, params);
+		} else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &params->disk);
+			params->flags |= OG_REST_PARAM_DISK;
+		} else if (!strcmp(key, "partition")) {
+			err = og_json_parse_string(value, &params->partition);
+			params->flags |= OG_REST_PARAM_PARTITION;
+		} else if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "repository")) {
+			err = og_json_parse_string(value, &params->repository);
+			params->flags |= OG_REST_PARAM_REPO;
+		} else if (!strcmp(key, "profile")) {
+			err = og_json_parse_string(value, &params->profile);
+			params->flags |= OG_REST_PARAM_PROFILE;
+		} else if (!strcmp(key, "type")) {
+			err = og_json_parse_string(value, &params->type);
+			params->flags |= OG_REST_PARAM_TYPE;
+		} else if (!strcmp(key, "sync_params")) {
+			err = og_json_parse_sync_params(value, params);
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR |
+					    OG_REST_PARAM_DISK |
+					    OG_REST_PARAM_PARTITION |
+					    OG_REST_PARAM_ID |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_REPO |
+					    OG_REST_PARAM_PROFILE |
+					    OG_REST_PARAM_TYPE |
+					    OG_REST_PARAM_SYNC_DIFF_ID |
+					    OG_REST_PARAM_SYNC_DIFF_NAME |
+					    OG_REST_PARAM_SYNC_PATH |
+					    OG_REST_PARAM_SYNC_METHOD |
+					    OG_REST_PARAM_SYNC_SYNC |
+					    OG_REST_PARAM_SYNC_DIFF |
+					    OG_REST_PARAM_SYNC_REMOVE |
+					    OG_REST_PARAM_SYNC_COMPRESS |
+					    OG_REST_PARAM_SYNC_CLEANUP |
+					    OG_REST_PARAM_SYNC_CACHE |
+					    OG_REST_PARAM_SYNC_CLEANUP_CACHE |
+					    OG_REST_PARAM_SYNC_REMOVE_DST))
+		return -1;
+
+	len = snprintf(buf, sizeof(buf),
+		       "nfn=RestaurarSoftIncremental\rdsk=%s\rpar=%s\ridi=%s\rnci=%s\r"
+			   "ipr=%s\rifs=%s\ridf=%s\rncf=%s\rrti=%s\rmet=%s\rmsy=%s\r"
+			   "tpt=%s\rwhl=%s\reli=%s\rcmp=%s\rbpi=%s\rcpc=%s\rbpc=%s\r"
+			   "nba=%s\r",
+		       params->disk, params->partition, params->id, params->name,
+			   params->repository, params->profile, params->sync_setup.diff_id,
+			   params->sync_setup.diff_name, params->sync_setup.path,
+			   params->sync_setup.method, params->sync_setup.sync, params->type,
+			   params->sync_setup.diff, params->sync_setup.remove,
+		       params->sync_setup.compress, params->sync_setup.cleanup,
+		       params->sync_setup.cache, params->sync_setup.cleanup_cache,
+		       params->sync_setup.remove_dst);
+
+	msg = og_msg_alloc(buf, len);
+	if (!msg)
+		return -1;
+
+	og_send_cmd((char **)params->ips_array, params->ips_array_len,
+		    CLIENTE_OCUPADO, msg);
+
+	og_msg_free(msg);
+
+	return 0;
 }
 
 static int og_client_method_not_found(struct og_client *cli)
@@ -4142,6 +4881,83 @@ static int og_client_state_process_payload_rest(struct og_client *cli)
 			return og_client_bad_request(cli);
 		}
 		err = og_cmd_software(root, &params);
+	} else if (!strncmp(cmd, "image/create/basic",
+			    strlen("image/create/basic"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_create_basic_image(root, &params);
+	} else if (!strncmp(cmd, "image/create/incremental",
+			    strlen("image/create/incremental"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_create_incremental_image(root, &params);
+	} else if (!strncmp(cmd, "image/create", strlen("image/create"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_create_image(root, &params);
+	} else if (!strncmp(cmd, "image/restore/basic",
+				strlen("image/restore/basic"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_restore_basic_image(root, &params);
+	} else if (!strncmp(cmd, "image/restore/incremental",
+				strlen("image/restore/incremental"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_restore_incremental_image(root, &params);
+	} else if (!strncmp(cmd, "image/restore", strlen("image/restore"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_restore_image(root, &params);
+	} else if (!strncmp(cmd, "setup", strlen("setup"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_setup(root, &params);
+	} else if (!strncmp(cmd, "run/schedule", strlen("run/schedule"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command create with no payload\n");
+			return og_client_bad_request(cli);
+		}
+
+		err = og_cmd_run_schedule(root, &params);
 	} else {
 		syslog(LOG_ERR, "unknown command: %.32s ...\n", cmd);
 		err = og_client_not_found(cli);
@@ -4151,7 +4967,7 @@ static int og_client_state_process_payload_rest(struct og_client *cli)
 		json_decref(root);
 
 	if (err < 0)
-		return err;
+		return og_client_bad_request(cli);
 
 	err = og_client_ok(cli, buf_reply);
 	if (err < 0) {

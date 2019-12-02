@@ -354,10 +354,10 @@ function abrir_ventana(URL){
 					echo '<TD colspan=3>'.$pormul.'</TD>';
 				else {
 					echo '<td colspan="3">';
-					for ($i=9000; $i<9100; $i+=2) {
+					for ($i=9000; $i<9098; $i+=2) {
 						$pormulmetodos.="$i=$i".chr(13);
 					}
-					$pormulmetodos.="9100=9100";
+					$pormulmetodos.="9098=9098";
 					echo HTMLCTESELECT($pormulmetodos,"pormul","estilodesple","",$pormul,100).'</td>';
 				}
 			?>
@@ -640,8 +640,6 @@ function TomaPropiedades($cmd,$ida)
 		if(count(explode(",",$idrepositorio))>1) $idrepositorio=0;
 		$idperfilhard=$rs->campos["idperfileshard"];		
 		if(count(explode(",",$idperfilhard))>1) $idperfilhard=0;
-		$idmenu=$rs->campos["idmenus"];
-		if(count(explode(",",$idmenu))>1) $idmenu=0;
 		$idprocedimiento=$rs->campos["idprocedimientos"];
 		if(count(explode(",",$idprocedimiento))>1) $idprocedimiento=0;
 	

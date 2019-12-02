@@ -164,11 +164,11 @@ CREATE TABLE `asistentes` (
 
 
 INSERT INTO `asistentes` (`idcomando`, `descripcion`, `pagina`, `gestor`, `funcion`, `urlimg`, `aplicambito`, `visuparametros`, `parametros`, `comentarios`, `activo`) VALUES
-('8', 'Asistente Clonacion Particiones Remotas', '../asistentes/AsistenteCloneRemotePartition.php', '../asistentes/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '1'),
-('8', 'Asistente Deploy de Imagenes', '../asistentes/AsistenteDeployImage.php', '../asistentes/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '1'),
-('8', 'Asistente UpdateCache con Imagenes', '../asistentes/AsistenteUpdateCache.php', '../asistentes/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '0'),
-('8', 'Asistente Restauracion de Imagenes', '../asistentes/AsistenteRestoreImage.php', '../asistentes/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '0'),
-('8', 'Asistente Particionado', '../asistentes/AsistenteParticionado.php', '../asistentes/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '1');
+('8', 'Asistente Clonacion Particiones Remotas', '../asistentes/AsistenteCloneRemotePartition.php', '../comandos/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '1'),
+('8', 'Asistente Deploy de Imagenes', '../asistentes/AsistenteDeployImage.php', '../comandos/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '1'),
+('8', 'Asistente UpdateCache con Imagenes', '../asistentes/AsistenteUpdateCache.php', '../comandos/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '0'),
+('8', 'Asistente Restauracion de Imagenes', '../asistentes/AsistenteRestoreImage.php', '../comandos/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '0'),
+('8', 'Asistente Particionado', '../asistentes/AsistenteParticionado.php', '../comandos/gestores/gestor_Comandos.php', 'EjecutarScript', ' ', '31', 'iph;tis;dcr;dsp', 'nfn;iph;tis;dcr;scp', ' ', '1');
 
 
 -- --------------------------------------------------------
@@ -1031,6 +1031,7 @@ INSERT INTO `tipospar` (`codpar`, `tipopar`, `clonable`) VALUES
 (CONV('16',16,10), 'HFAT16', 1),
 (CONV('17',16,10), 'HNTFS', 1),
 (CONV('1B',16,10), 'HFAT32', 1),
+(CONV('27',16,10), 'HNTFS-WINRE', 1),
 (CONV('82',16,10), 'LINUX-SWAP', 0),
 (CONV('83',16,10), 'LINUX', 1),
 (CONV('8E',16,10), 'LINUX-LVM', 1),

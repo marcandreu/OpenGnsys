@@ -132,9 +132,9 @@ function globalSetup ()
 	else
 		REMOTE=1
 	fi
-	BRANCH="devel"
+	BRANCH="master"
 	CODE_URL="https://codeload.github.com/opengnsys/OpenGnsys/zip/$BRANCH"
-	API_URL="https://api.github.com/repos/opengnsys/OpenGnsys/branches/$BRANCH"
+	API_URL="https://api.github.com/repos/opengnsys/OpenGnsys"
 
 	# Directorios de instalación y destino de OpenGnsys.
 	WORKDIR=/tmp/opengnsys_installer
@@ -189,7 +189,7 @@ OSVERSION="${OSVERSION%%.*}"
 # Configuración según la distribución GNU/Linux (usar minúsculas).
 case "$OSDISTRIB" in
 	ubuntu|debian|linuxmint)
-		DEPENDENCIES=( subversion apache2 php php-ldap php-fpm mysql-server php-mysql isc-dhcp-server bittorrent tftp-hpa tftpd-hpa xinetd build-essential g++-multilib libmysqlclient-dev wget curl doxygen graphviz bittornado ctorrent samba rsync unzip netpipes debootstrap schroot squashfs-tools btrfs-tools procps arp-scan realpath php-curl gettext moreutils jq wakeonlan udpcast libev-dev libjansson-dev shim-signed grub-efi-amd64-signed )
+		DEPENDENCIES=( subversion apache2 php php-ldap php-fpm mysql-server php-mysql isc-dhcp-server bittorrent tftp-hpa tftpd-hpa xinetd build-essential g++-multilib libmysqlclient-dev wget curl doxygen graphviz bittornado ctorrent samba rsync unzip netpipes debootstrap schroot squashfs-tools btrfs-tools procps arp-scan realpath php-curl gettext moreutils jq wakeonlan udpcast libev-dev libjansson-dev libssl-dev shim-signed grub-efi-amd64-signed gawk )
 		UPDATEPKGLIST="apt-get update"
 		INSTALLPKG="apt-get -y install --force-yes"
 		CHECKPKG="dpkg -s \$package 2>/dev/null | grep Status | grep -qw install"
@@ -226,7 +226,7 @@ case "$OSDISTRIB" in
 		TFTPCFGDIR=/var/lib/tftpboot
 		;;
 	fedora|centos)
-		DEPENDENCIES=( subversion httpd mod_ssl php-ldap php-fpm mysql-server mysql-devel mysql-devel.i686 php-mysql dhcp tftp-server tftp xinetd binutils gcc gcc-c++ glibc-devel glibc-devel.i686 glibc-static glibc-static.i686 libstdc++-devel.i686 make wget curl doxygen graphviz ctorrent samba samba-client rsync unzip debootstrap schroot squashfs-tools python-crypto arp-scan procps-ng gettext moreutils jq net-tools udpcast libev-devel shim-x64 grub2-efi-x64 grub2-efi-x64-modules http://ftp.altlinux.org/pub/distributions/ALTLinux/5.1/branch/$(arch)/RPMS.classic/netpipes-4.2-alt1.$(arch).rpm )
+		DEPENDENCIES=( subversion httpd mod_ssl php-ldap php-fpm mysql-server mysql-devel mysql-devel.i686 php-mysql dhcp tftp-server tftp xinetd binutils gcc gcc-c++ glibc-devel glibc-devel.i686 glibc-static glibc-static.i686 libstdc++-devel.i686 make wget curl doxygen graphviz ctorrent samba samba-client rsync unzip debootstrap schroot squashfs-tools python-crypto arp-scan procps-ng gettext moreutils jq net-tools udpcast libev-devel shim-x64 grub2-efi-x64 grub2-efi-x64-modules gawk http://ftp.altlinux.org/pub/distributions/ALTLinux/5.1/branch/$(arch)/RPMS.classic/netpipes-4.2-alt1.$(arch).rpm )
 		[ "$OSDISTRIB" == "centos" ] && UPDATEPKGLIST="yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-$OSVERSION.noarch.rpm http://rpms.remirepo.net/enterprise/remi-release-$OSVERSION.rpm"
 		INSTALLEXTRADEPS=( 'pushd /tmp; wget -t3 http://ftp.acc.umu.se/mirror/bittornado/BitTornado-0.3.18.tar.gz && tar xvzf BitTornado-0.3.18.tar.gz && cd BitTornado-CVS && python setup.py install && ln -fs btlaunchmany.py /usr/bin/btlaunchmany && ln -fs bttrack.py /usr/bin/bttrack; popd' )
 		INSTALLPKG="yum install -y libstdc++ libstdc++.i686"
@@ -692,9 +692,6 @@ function mysqlImportSqlFileToDb()
 	local i=0
 	local dev=""
 	local status
-	# Claves aleatorias para acceso a las APIs REST.
-	local OPENGNSYS_APIKEY=$(php -r 'echo md5(uniqid(rand(), true));')
-	OPENGNSYS_REPOKEY=$(php -r 'echo md5(uniqid(rand(), true));')
 
 	if [ ! -f $sqlfile ]; then
 		errorAndLog "${FUNCNAME}(): Unable to locate $sqlfile!!"
@@ -708,8 +705,6 @@ function mysqlImportSqlFileToDb()
 			sed -e "s/SERVERIP/${SERVERIP[i]}/g" \
 			    -e "s/DBUSER/$OPENGNSYS_DB_USER/g" \
 			    -e "s/DBPASSWORD/$OPENGNSYS_DB_PASSWD/g" \
-			    -e "s/APIKEY/$OPENGNSYS_APIKEY/g" \
-			    -e "s/REPOKEY/$OPENGNSYS_REPOKEY/g" \
 				$sqlfile > $tmpfile
 		fi
 		let i++
@@ -838,10 +833,12 @@ function checkNetworkConnection()
 {
 	echoAndLog "${FUNCNAME}(): Checking OpenGnsys server connectivity."
 	OPENGNSYS_SERVER=${OPENGNSYS_SERVER:-"opengnsys.es"}
-	if which wget &>/dev/null; then
-		wget --spider -q $OPENGNSYS_SERVER
-	elif which curl &>/dev/null; then
-		curl --connect-timeout 10 -s $OPENGNSYS_SERVER -o /dev/null
+	if which curl &>/dev/null; then
+		curl --connect-timeout 10 -s "https://$OPENGNSYS_SERVER/" -o /dev/null && \
+			curl --connect-timeout 10 -s "http://$OPENGNSYS_SERVER/" -o /dev/null
+	elif which wget &>/dev/null; then
+		wget --spider -q "https://$OPENGNSYS_SERVER/" && \
+			wget --spider -q "http://$OPENGNSYS_SERVER/"
 	else
 		echoAndLog "${FUNCNAME}(): Cannot execute \"wget\" nor \"curl\"."
 		return 1
@@ -1492,10 +1489,8 @@ function openGnsysConfigure()
 			    -e "s/DBUSER/$OPENGNSYS_DB_USER/g" \
 			    -e "s/DBPASSWORD/$OPENGNSYS_DB_PASSWD/g" \
 			    -e "s/DATABASE/$OPENGNSYS_DATABASE/g" \
-			    -e "s/REPOKEY/$OPENGNSYS_REPOKEY/g" \
 				$WORKDIR/opengnsys/admin/Sources/Services/ogAdmServer/ogAdmServer.cfg > $INSTALL_TARGET/etc/ogAdmServer-$dev.cfg
 			sed -e "s/SERVERIP/${SERVERIP[i]}/g" \
-			    -e "s/REPOKEY/$OPENGNSYS_REPOKEY/g" \
 				$WORKDIR/opengnsys/repoman/etc/ogAdmRepo.cfg.tmpl > $INSTALL_TARGET/etc/ogAdmRepo-$dev.cfg
 			sed -e "s/SERVERIP/${SERVERIP[i]}/g" \
 			    -e "s/DBUSER/$OPENGNSYS_DB_USER/g" \
@@ -1544,9 +1539,17 @@ EOT
 		$DISABLESERVICE
 	fi
 
-	echoAndLog "${FUNCNAME}(): Starting OpenGnsys services."
+	# Actualizar tokens de autenticación e iniciar los servicios.
 	service="opengnsys"
-	$ENABLESERVICE; $STARTSERVICE
+	$ENABLESERVICE
+	if [ -x $INSTALL_TARGET/bin/settoken ]; then
+		echoAndLog "${FUNCNAME}(): Setting authentication tokens and starting OpenGnsys services."
+		$INSTALL_TARGET/bin/settoken "$OPENGNSYS_DB_USER"
+		$INSTALL_TARGET/bin/settoken -f
+	else
+		echoAndLog "${FUNCNAME}(): Starting OpenGnsys services."
+		$STARTSERVICE
+	fi
 }
 
 
@@ -1565,8 +1568,10 @@ function installationSummary()
 	# de código o si no está incluida en el fichero de versión.
 	if [ $REMOTE -eq 1 ] || [ -z "$(jq -r '.release' $VERSIONFILE)" ]; then
 		# Revisión: rAñoMesDía.Gitcommit (8 caracteres de fecha y 7 primeros de commit).
-		REVISION=$(curl -s "$API_URL" | jq '"r" + (.commit.commit.committer.date | split("-") | join("")[:8]) + "." + (.commit.sha[:7])')
-		jq ".release=$REVISION" $VERSIONFILE | sponge $VERSIONFILE
+		RELEASE=$(curl -s "$API_URL/branches/$BRANCH" | jq -r '"r" + (.commit.commit.committer.date | split("-") | join("")[:8]) + "." + (.commit.sha[:7])' 2>/dev/null)
+		# Obtener revisión para etiqueta de versión en vez de rama de código.
+		[ -z "$RELEASE" ] && RELEASE=$(curl -s $(curl -s "$API_URL/tags" | jq -r ".[] | select(.name==\"$BRANCH\").commit.url" 2>/dev/null) | jq -r '"r" + (.commit.committer.date | split("-") | join("")[:8]) + "." + .sha[:7]' 2>/dev/null)
+		jq ".release=\"$RELEASE\"" $VERSIONFILE | sponge $VERSIONFILE
 	fi
 	VERSION="$(jq -r '[.project, .version, .codename, .release] | join(" ")' $VERSIONFILE 2>/dev/null)"
 
@@ -1580,7 +1585,7 @@ function installationSummary()
 	echoAndLog "Repository directory:             $INSTALL_TARGET/images"
 	echoAndLog "DHCP configuration directory:     $DHCPCFGDIR"
 	echoAndLog "TFTP configuration directory:     $TFTPCFGDIR"
-	echoAndLog "Installed ogLive client(s):       $(oglivecli list | awk '{print $2}')"
+	echoAndLog "Installed ogLive client:          $(oglivecli list | awk '{print $2}')"
 	echoAndLog "Samba configuration directory:    $SAMBACFGDIR"
 	echoAndLog "Web Console URL:                  $OPENGNSYS_CONSOLEURL"
 	echoAndLog "Web Console access data:          entered by the user"

@@ -67,22 +67,21 @@ function getStatus($ouid, $labid, $clntid=0) {
 	global $cmd;
 	global $LONCABECERA;
 	global $LONHEXPRM;
+	$app = \Slim\Slim::getInstance();
 	$response = [];
 	$id = [];
 	$stat = [];
 	$ip = "";
-
-	$app = \Slim\Slim::getInstance();
-	$urls = Array();
+	$urls = [];
 	// Status mapping.
-	$status = Array('OFF'=>"off",
-			'INI'=>"initializing",
-			'OPG'=>"oglive",
-			'BSY'=>"busy",
-			'LNX'=>"linux",
-			'OSX'=>"macos",
-			'WIN'=>"windows",
-			'UNK'=>"unknown");
+	$status = ['OFF'=>"off",
+		   'INI'=>"initializing",
+		   'OPG'=>"oglive",
+		   'BSY'=>"busy",
+		   'LNX'=>"linux",
+		   'OSX'=>"macos",
+		   'WIN'=>"windows",
+		   'UNK'=>"unknown"];
 	// Parameters.
 	$ouid = htmlspecialchars($ouid);
 	$labid = htmlspecialchars($labid);
@@ -90,9 +89,8 @@ function getStatus($ouid, $labid, $clntid=0) {
 
 	// Database query.
 	$cmd->texto = <<<EOD
-SELECT adm.idusuario, entornos.ipserveradm, entornos.portserveradm,
-       aulas.idaula, ordenadores.idordenador, ordenadores.ip
-  FROM entornos, ordenadores
+SELECT adm.idusuario, aulas.idaula, ordenadores.idordenador, ordenadores.ip
+  FROM ordenadores
   JOIN aulas USING(idaula)
  RIGHT JOIN administradores_centros AS adm USING(idcentro)
  WHERE adm.idusuario = '$userid'
@@ -112,100 +110,72 @@ EOD;
 	$rs->Primero();
 	// Check if user is an UO admin and asset exists.
 	if (checkAdmin($rs->campos["idusuario"]) and (($single and checkParameter($rs->campos["idordenador"])) or (! $single and checkParameter($rs->campos["idaula"])))) {
-		// First, try to connect to ogAdmCleint service.
-		$serverip = $rs->campos["ipserveradm"];
-		$serverport = $rs->campos["portserveradm"];
 		while (!$rs->EOF) {
 			$id[$rs->campos["ip"]] = $rs->campos["idordenador"];
 			$stat[$rs->campos["ip"]] = $status['OFF'];
 			$rs->Siguiente();
 		}
-		// Connect to reset client's status.
+		// Get client status.
 		$clientid = implode(",", $id);
 		$clientip = implode(";", array_keys($id));
-		$reqframe = "nfn=Sondeo\r".
-			    "ido=$clientid\r".
-			    "iph=$clientip\r";
-		$result = sendCommand($serverip, $serverport, $reqframe, $values);
-		// Connect to fetch client's status.
-		// Asuming client is off by default.
-		$values["tso"]="OFF";
-		// Iterate to check client's status.
-		// Exit if status!=OFF or end iterations (status=OFF).
-		$maxIter = 30;
-		for ($i=1; $i<$maxIter and preg_match('/OFF/', $values["tso"]); $i++) {
-			// Connect to check status.
-			$reqframe = "nfn=respuestaSondeo\r".
-				    "ido=$clientid\r".
-				    "iph=$clientip\r";
-			$result = sendCommand($serverip, $serverport, $reqframe, $values);
-			// Wait until next checking (0.1 ms).
-			usleep(100000);
+		$result = clients(2, $clientip);
+		// Check status type.
+		if (checkParameter($result)) {
+			foreach (explode(";", $result) as $data) {
+				if (!empty($data)) {
+					list($clip, $clst) = explode("/", $data);
+					if ($clst != "OFF") {
+						// Update current status.
+						$stat[$clip] = $status[$clst];
+					}
+				}
+			}
 		}
-		// Parse status response.
-		if ($result) {
-			// Check status type.
-			if (checkParameter($values["tso"])) {
-				foreach (explode(";", $values["tso"]) as $data) {
-					if (!empty($data)) {
-						list($clip, $clst) = explode("/", $data);
-						if ($clst != "OFF") {
-							// Update current status.
-							$stat[$clip] = $status[$clst];
-						}
-					}
+		// Prepare request to new OGAgent for OSes.
+		foreach ($stat as $ip => $st) {
+			if ($st == "off") {
+				$urls[$ip] = "https://$ip:8000/opengnsys/status";
+			}
+		}
+		// Send request to OGAgents.
+		if (isset($urls)) {
+			$result = multiRequest($urls);
+		}
+		// Parse responses.
+		reset($urls);
+		foreach ($result as $res) {
+			if (!empty($res['data'])) {
+				// Get status and session data.
+				$ip = key($urls);
+				$data = json_decode($res['data']);
+				if (@isset($status[$data->status])) {
+					$stat[$ip] = $status[$data->status];
+					$logged[$ip] = $data->loggedin;
+				} else {
+					$stat[$ip] = $status['UNK'];
 				}
 			}
-			// Prepare request to new OGAgent for OSes.
-			foreach ($stat as $ip => $st) {
-				if ($st == "off") {
-					$urls[$ip] = "https://$ip:8000/opengnsys/status";
-				}
-			}
-			// Send request to OGAgents.
-			if (isset($urls)) {
-				$result = multiRequest($urls);
-			}
-			// Parse responses.
-			reset($urls);
-			foreach ($result as $res) {
-				if (!empty($res['data'])) {
-					// Get status and session data.
-					$ip = key($urls);
-					$data = json_decode($res['data']);
-					if (@isset($status[$data->status])) {
-						$stat[$ip] = $status[$data->status];
-						$logged[$ip] = $data->loggedin;
-					} else {
-						$stat[$ip] = $status['UNK'];
-					}
-				}
-				unset($urls[$ip]);
-			}
-			// Compose JSON response.
-			if ($single) {
-				// Single response.
-				$response['id'] = (int)reset($id);
-				$response['ip'] = key($id);
-				$response['status'] = $stat[$ip];
-				empty($logged[$ip]) || $response['loggedin'] = $logged[$ip];
-			} else {
-				// Multiple responses.
-				foreach ($stat as $ip => $st) {
-					$tmp = Array();
-					$tmp['id'] = (int)$id[$ip];
-					$tmp['ip'] = $ip;
-					$tmp['status'] = $stat[$ip];
-					empty($logged[$ip]) || $tmp['loggedin'] = $logged[$ip];
-					array_push($response, $tmp);
-				}
-			}
-			jsonResponse(200, $response);
+			unset($urls[$ip]);
+		}
+		// Compose JSON response.
+		if ($single) {
+			// Single response.
+			$response['id'] = (int)reset($id);
+			$response['ip'] = key($id);
+			$response['status'] = $stat[key($id)];
+			empty($logged[$ip]) || $response['loggedin'] = $logged[$ip];
 		} else {
-			// Access error.
-			$response['message'] = "Cannot access to OpenGnsys server";
-			jsonResponse(500, $response);
+			// Multiple responses.
+			foreach ($stat as $ip => $st) {
+				$tmp = Array();
+				$tmp['id'] = (int)$id[$ip];
+				$tmp['ip'] = $ip;
+				$tmp['status'] = $stat[$ip];
+				empty($logged[$ip]) || $tmp['loggedin'] = $logged[$ip];
+				array_push($response, $tmp);
+			}
 		}
+		jsonResponse(200, $response);
 	}
 	$rs->Cerrar(); 
 }
@@ -1039,7 +1009,7 @@ EOD;
 			while (!$rs->EOF) {
 				// Ignoring empty fields.
 				if (!is_null($rs->campos["descripcion"])) {
-					array_push($response['software']['application'], $rs->campos["descripcion"]);
+					array_push($response['software']['applications'], $rs->campos["descripcion"]);
 				}
 				$rs->Siguiente();
 			}

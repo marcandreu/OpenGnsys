@@ -12,12 +12,14 @@ include_once("../includes/ctrlacc.php");
 include_once("../clases/AdoPhp.php");
 include_once("../clases/XmlPhp.php");
 include_once("../clases/ArbolVistaXML.php");
-include_once("../clases/SockHidra.php");
 include_once("../includes/CreaComando.php");
 include_once("../includes/constantes.php");
 include_once("../includes/comunes.php");
 include_once("../includes/RecopilaIpesMacs.php");
+include_once("../includes/restfunctions.php");
 //________________________________________________________________________________________________________
+
+define('OG_CMD_ID_WAKEUP', 1);
 
 $opcion=0; // Inicializa parametros
 
@@ -48,7 +50,6 @@ if (isset($_GET["swc"])) $swc=$_GET["swc"]; // Switch que indica que la página 
 $cmd=CreaComando($cadenaconexion); // Crea objeto comando
 $resul=false;
 if ($cmd){
-	$shidra=new SockHidra($servidorhidra,$hidraport); 
 	$cadenaid="";
 	$cadenaip="";
 	$cadenamac="";
@@ -156,8 +157,12 @@ function ejecucionTarea($idtarea)
 //________________________________________________________________________________________________________
 function recorreProcedimientos($idprocedimiento,$ambito,$idambito)
 {		
-	global $cmd;
+	global $cadenamac;
+	global $cadenaip;
 	global $sesion;
+	global $cmd;
+
+	$wol_params;
 
 	$cmd->texto="SELECT   idcomando,procedimientoid,parametros
 			 FROM procedimientos_acciones
@@ -184,11 +189,19 @@ function recorreProcedimientos($idprocedimiento,$ambito,$idambito)
 			$sesion=$nwsesion;
 			$cmd->ParamSetValor("@sesion",$sesion);
 			// Fin ticket 681.
+			if ($idcomando == OG_CMD_ID_WAKEUP)
+				$wol_params = $parametros;
 			if(!insertaComando($idcomando,$parametros,$idprocedimiento,$ambito,$idambito)) 
 				return(false);	
 		}
 		$rs->Siguiente();
 	}
+
+	if (isset($wol_params)) {
+		$atributos = substr(trim($wol_params), -1);
+		include("../comandos/gestores/wakeonlan_repo.php");
+	}
+
 	return(true);
 }
 //________________________________________________________________________________________________________
@@ -268,43 +281,13 @@ function insertaComando($idcomando,$parametros,$idprocedimiento,$ambito,$idambit
 		$resul=$cmd->Ejecutar();
 		//echo $cmd->texto;
 		if(!$resul) return(false);
-		
-		/* Sólo envía por la red el primer comando, el resto, si hubiera, 
-		lo encontrará el cliente a través de los comandos pendientes */
+
+		// Let the clients know they can start executing pending commands.
 		if(empty($vez)){
-			if(!enviaComando($parametros,$sesion)) return(false);
+			run_schedule($cadenaip);
 			$vez++;
 		}
 	}
 	return(true);
 }
-//________________________________________________________________________________________________________
-//
-//	Envia un procedimiento a un grupo de ordenadores a través de la red
-//________________________________________________________________________________________________________
-function enviaComando($parametros,$sesion)
-{	
-	global $cadenaid;
-	global $cadenaip;
-	global $cadenamac;	
-	global $servidorhidra;		
-	global $hidraport;		
-	global $LONCABECERA;		
-	global $shidra;
-	
-	// Envio al servidor 
-
-	$aplicacion=chr(13)."ido=".$cadenaid.chr(13)."mac=".$cadenamac.chr(13)."iph=".$cadenaip.chr(13);
-	$acciones=chr(13)."ids=".$sesion.chr(13); // Para seguimiento
-	
-	if ($shidra->conectar()){ // Se ha establecido la conexión con el servidor hidra
-		$parametros.=$aplicacion;
-		$parametros.=$acciones;
-		$shidra->envia_comando($parametros);
-		$trama=$shidra->recibe_respuesta();
-		$shidra->desconectar();
-	}
-	return(true);
-}
-
 

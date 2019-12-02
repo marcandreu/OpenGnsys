@@ -11,10 +11,8 @@
 include_once("../../includes/ctrlacc.php");
 include_once("../../includes/restfunctions.php");
 include_once("../../clases/AdoPhp.php");
-include_once("../../clases/SockHidra.php");
 include_once("../../includes/constantes.php");
 include_once("../../includes/comunes.php");
-include_once("../../includes/cuestionacciones.php");
 include_once("../../includes/CreaComando.php");
 include_once("../../includes/RecopilaIpesMacs.php");
 //________________________________________________________________________________________________________
@@ -23,12 +21,67 @@ include_once("../includes/capturaacciones.php");
 
 define('OG_CMD_ID_WAKEUP', 1);
 define('OG_CMD_ID_POWEROFF', 2);
+define('OG_CMD_ID_RESTORE_IMAGE', 3);
+define('OG_CMD_ID_CREATE_IMAGE', 4);
 define('OG_CMD_ID_REBOOT', 5);
 define('OG_CMD_ID_HARDWARE', 6);
 define('OG_CMD_ID_SOFTWARE', 7);
 define("OG_CMD_ID_SCRIPT", 8);
 define('OG_CMD_ID_SESSION', 9);
+define('OG_CMD_ID_SETUP', 10);
+define('OG_CMD_ID_CREATE_BASIC_IMAGE', 12);
+define('OG_CMD_ID_RESTORE_BASIC_IMAGE', 13);
+define('OG_CMD_ID_CREATE_INCREMENTAL_IMAGE', 14);
+define('OG_CMD_ID_RESTORE_INCREMENTAL_IMAGE', 15);
 define('OG_CMD_ID_SENDMESSAGE', 16);
+
+function run_command($idcomando, $cadenaip, $cadenamac, $atributos) {
+	global $cmd;
+	switch ($idcomando) {
+		case OG_CMD_ID_WAKEUP:
+			include("wakeonlan_repo.php");
+			break;
+		case OG_CMD_ID_SETUP:
+			setup($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_SESSION:
+			session($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_CREATE_BASIC_IMAGE:
+			create_basic_image($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_CREATE_INCREMENTAL_IMAGE:
+			create_incremental_image($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_RESTORE_BASIC_IMAGE:
+			restore_basic_image($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_RESTORE_INCREMENTAL_IMAGE:
+			restore_incremental_image($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_POWEROFF:
+			poweroff($cadenaip);
+			break;
+		case OG_CMD_ID_CREATE_IMAGE:
+			create_image($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_RESTORE_IMAGE:
+			restore_image($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_REBOOT:
+			reboot($cadenaip);
+			break;
+		case OG_CMD_ID_HARDWARE:
+			hardware($cadenaip);
+			break;
+		case OG_CMD_ID_SOFTWARE:
+			software($cadenaip, $atributos);
+			break;
+		case OG_CMD_ID_SCRIPT:
+			shell(3, $cadenaip, $atributos);
+			break;
+	}
+}
 
 // Recoge parametros de seguimiento
 $sw_ejya="";
@@ -124,27 +177,6 @@ $cmd->CreaParametro("@restrambito","",0);
 $cmd->CreaParametro("@ordprocedimiento",0,1);
 $cmd->CreaParametro("@ordtarea",0,1);
 
-/* PARCHE UHU heredado de la version 1.1.0: Si la accion a realizar es Arrancar incluimos una pagina para arrancar desde el repo */
-switch ($idcomando) {
-	case OG_CMD_ID_WAKEUP:
-		include("wakeonlan_repo.php");
-		break;
-	case OG_CMD_ID_SESSION:
-		session($cadenaip, $atributos);
-		break;
-	case OG_CMD_ID_POWEROFF:
-		poweroff($cadenaip);
-		break;
-	case OG_CMD_ID_REBOOT:
-		reboot($cadenaip);
-		break;
-	case OG_CMD_ID_HARDWARE:
-		hardware($cadenaip);
-		break;
-	case OG_CMD_ID_SOFTWARE:
-		software($cadenaip);
-}
-
 if($ambito==0){ // Ambito restringido a un subconjuto de ordenadores con formato (idordenador1,idordenador2,etc)
 	$cmd->ParamSetValor("@restrambito",$idambito);
 	$idambito=0;
@@ -198,36 +230,14 @@ if($sw_ejya=='on' || $sw_ejprg=="on" ){
 	else{
 		$ValorParametros=extrae_parametros($parametros,chr(13),'=');
 		$script=@urldecode($ValorParametros["scp"]);
-		if($sw_ejya=='on'){ 	
-			if ($idcomando != OG_CMD_ID_SENDMESSAGE &&
-			    $idcomando != OG_CMD_ID_WAKEUP &&
-			    $idcomando != OG_CMD_ID_SESSION &&
-			    $idcomando != OG_CMD_ID_POWEROFF &&
-			    $idcomando != OG_CMD_ID_HARDWARE &&
-			    $idcomando != OG_CMD_ID_SOFTWARE &&
-			    $idcomando != OG_CMD_ID_REBOOT) {
-			    // Envío al servidor
-			    $shidra=new SockHidra($servidorhidra,$hidraport); 
-			    if ($shidra->conectar()){ // Se ha establecido la conexión con el servidor hidra
-				$parametros.=$aplicacion;
-				$parametros.=$acciones;
-				$resul=$shidra->envia_comando($parametros);
-				if($resul)
-					$trama=$shidra->recibe_respuesta();
-					if($resul){
-						$hlonprm=hexdec(substr($trama,$LONCABECERA,$LONHEXPRM));
-						$parametros=substr($trama,$LONCABECERA+$LONHEXPRM,$hlonprm);
-						$ValorParametros=extrae_parametros($parametros,chr(13),'=');
-						$resul=$ValorParametros["res"];
-					}
-				$shidra->desconectar();
-			    }
-			    // Guardamos resultado de ogAgent original
-			    $resulhidra = $resul;
-			} else {
-			    // En agente nuevo devuelvo siempre correcto
-			    $resulhidra = 1;
-			}
+		if($sw_ejya=='on'){
+			if ($sw_seguimiento == 1 || $sw_ejprg == "on")
+				run_schedule($cadenaip);
+			else
+				run_command($idcomando, $cadenaip, $cadenamac, $atributos);
+
+			// En agente nuevo devuelvo siempre correcto
+			$resulhidra = 1;
 
 			// Comprobamos si el comando es soportado por el nuevo OGAgent
 			$numip=0;

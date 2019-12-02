@@ -15,7 +15,7 @@ include_once("../clases/AdoPhp.php");
 include_once("../includes/constantes.php");
 include_once("../includes/comunes.php");
 include_once("../includes/CreaComando.php");
-include_once("../clases/SockHidra.php");
+include_once("../includes/restfunctions.php");
 //________________________________________________________________________________________________________
 	
 $opcion=0; // Inicializa parametros
@@ -85,14 +85,14 @@ function gestiona($cmd,$opcion,$acciones){
 
 				/* Update de la tabla */
 				$cmd->texto="UPDATE acciones 
-						SET estado=".$ACCION_INICIADA.",resultado=".$ACCION_SINRESULTADO.",descrinotificacion='',fechahorafin=''";
+						SET estado=".$ACCION_INICIADA.",resultado=".$ACCION_SINRESULTADO.",descrinotificacion='',fechahorafin=DEFAULT";
 				if(!empty($idaccion))
 					$cmd->texto.=" WHERE idaccion=".$idaccion;
 				else	
 					$cmd->texto.=" WHERE tipoaccion=".$tipoaccion." AND idtipoaccion=".$idtipoaccion." AND sesion=".$sesion;
 				$resul=$cmd->Ejecutar();
 				if($resul)
-					$resul=enviaComandoActualizar($aplicacion);
+					run_schedule($rs->campos["cadenaip"]);
 				break;	
 				
 			case  3: // Para acciones ============================================================
@@ -139,40 +139,3 @@ function gestiona($cmd,$opcion,$acciones){
 	}
 	return($resul);
 }
-//	_________________________________________________________________________
-//
-// Envía un comando de actualizar a los ordenadores tras reinicio de acción
-//	_________________________________________________________________________
-
-function enviaComandoActualizar($aplicacion)
-{
-	global $servidorhidra;
-	global $hidraport;
-	global $LONCABECERA;
-	global $LONHEXPRM;
-	
-	$funcion="Actualizar"; // Nombre de la función que procesa la petición
-	//________________________________________________________________________________________________________
-	//
-	// Envio al servidor de la petición
-	//________________________________________________________________________________________________________
-	$trama="";
-	$shidra=new SockHidra($servidorhidra,$hidraport); 
-	if ($shidra->conectar()){ // Se ha establecido la conexión con el servidor hidra
-		$parametros="nfn=".$funcion.chr(13);
-		$parametros.=$aplicacion;
-		$shidra->envia_comando($parametros);
-		$trama=$shidra->recibe_respuesta();
-		$shidra->desconectar();
-	}
-	else
-		return(false); // Error de actualización
-	
-	$hlonprm=hexdec(substr($trama,$LONCABECERA,$LONHEXPRM));
-	$parametros=substr($trama,$LONCABECERA+$LONHEXPRM,$hlonprm);
-	$ValorParametros=extrae_parametros($parametros,chr(13),'=');
-	$trama_notificacion=$ValorParametros["res"];
-	if($trama_notificacion==1) return(true); // Devuelve respuesta	
-	return(false); // Error de actualización
-}
-
