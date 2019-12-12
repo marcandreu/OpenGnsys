@@ -136,7 +136,10 @@ enum og_client_state {
 /* Shut down connection if there is no complete message after 10 seconds. */
 #define OG_CLIENT_TIMEOUT	10
 
+static LIST_HEAD(client_list);
+
 struct og_client {
+	struct list_head	list;
 	struct ev_io		io;
 	struct ev_timer		timer;
 	struct sockaddr_in	addr;
@@ -146,6 +149,7 @@ struct og_client {
 	unsigned int		msg_len;
 	int			keepalive_idx;
 	bool			rest;
+	bool			agent;
 	int			content_length;
 	char			auth_token[64];
 };
@@ -2865,6 +2869,7 @@ static void og_client_release(struct ev_loop *loop, struct og_client *cli)
 		tbsockets[cli->keepalive_idx].cli = NULL;
 	}
 
+	list_del(&cli->list);
 	ev_io_stop(loop, &cli->io);
 	close(cli->io.fd);
 	free(cli);
@@ -3047,6 +3052,80 @@ struct og_msg_params {
 #define OG_REST_PARAM_SYNC_METHOD		(1UL << 29)
 #define OG_REST_PARAM_ECHO			(1UL << 30)
 #define OG_REST_PARAM_TASK			(1UL << 31)
+
+enum og_rest_method {
+	OG_METHOD_GET	= 0,
+	OG_METHOD_POST,
+};
+
+static int og_client_find(const char *ip)
+{
+	struct og_client *client;
+	struct in_addr addr;
+
+	const int res = inet_aton(ip, &addr);
+	if (res == 0) {
+		syslog(LOG_ERR, "Invalid IP string: %s\n", ip);
+		return -1;
+	}
+
+	list_for_each_entry(client, &client_list, list) {
+		if (client->addr.sin_addr.s_addr == addr.s_addr && client->agent) {
+			return client->io.fd;
+		}
+	}
+	return -1;
+}
+
+static int og_send_request(const char *cmd,
+			   const enum og_rest_method method,
+			   const struct og_msg_params *params,
+			   const json_t *data)
+{
+	const char content_type[] = "Content-Type:application/json";
+	char content [OG_MSG_REQUEST_MAXLEN - 700] = {};
+	char buf[OG_MSG_REQUEST_MAXLEN] = {};
+	unsigned int content_length;
+	char method_str[5] = {};
+
+	if (method == OG_METHOD_GET)
+		snprintf(method_str, 5, "GET");
+	else if (method == OG_METHOD_POST)
+		snprintf(method_str, 5, "POST");
+	else
+		return -1;
+
+	if (!data)
+		content_length = 0;
+	else
+		content_length = json_dumpb(data,
+					    content,
+					    OG_MSG_REQUEST_MAXLEN - 700,
+					    JSON_COMPACT);
+
+	snprintf(buf,
+		 OG_MSG_REQUEST_MAXLEN,
+		 "%s /%s HTTP/1.1\r\nContent-Length:%d\r\n%s\r\n\r\n%s",
+		 method_str,
+		 cmd,
+		 content_length,
+		 content_type,
+		 content);
+
+	for (unsigned int i = 0; i < params->ips_array_len; ++i) {
+		const int client_sd = og_client_find(params->ips_array[i]);
+		if (client_sd == -1) {
+		syslog(LOG_INFO,
+		       "Client %s not conected\n",
+		       params->ips_array[i]);
+		}
+		int res = send(client_sd, buf, strlen(buf), 0);
+		if (res == -1)
+			return res;
+	}
+
+	return 0;
+}
 
 static bool og_msg_params_validate(const struct og_msg_params *params,
 				   const uint64_t flags)
@@ -4775,11 +4854,6 @@ static int og_client_ok(struct og_client *cli, char *buf_reply)
 	return err;
 }
 
-enum og_rest_method {
-	OG_METHOD_GET	= 0,
-	OG_METHOD_POST,
-};
-
 static int og_client_state_process_payload_rest(struct og_client *cli)
 {
 	char buf_reply[OG_MSG_RESPONSE_MAXLEN] = {};
@@ -5059,18 +5133,16 @@ static int og_client_state_recv_hdr_rest(struct og_client *cli)
 	return 1;
 }
 
-static void og_client_read_cb(struct ev_loop *loop, struct ev_io *io, int events)
+static int og_client_recv(struct og_client *cli, int events)
 {
-	struct og_client *cli;
+	struct ev_io *io = &cli->io;
 	int ret;
-
-	cli = container_of(io, struct og_client, io);
 
 	if (events & EV_ERROR) {
 		syslog(LOG_ERR, "unexpected error event from client %s:%hu\n",
 			       inet_ntoa(cli->addr.sin_addr),
 			       ntohs(cli->addr.sin_port));
-		goto close;
+		return 0;
 	}
 
 	ret = recv(io->fd, cli->buf + cli->buf_len,
@@ -5084,8 +5156,22 @@ static void og_client_read_cb(struct ev_loop *loop, struct ev_io *io, int events
 			syslog(LOG_DEBUG, "closed connection by %s:%hu\n",
 			       inet_ntoa(cli->addr.sin_addr), ntohs(cli->addr.sin_port));
 		}
-		goto close;
+		return ret;
 	}
+
+	return ret;
+}
+
+static void og_client_read_cb(struct ev_loop *loop, struct ev_io *io, int events)
+{
+	struct og_client *cli;
+	int ret;
+
+	cli = container_of(io, struct og_client, io);
+
+	ret = og_client_recv(cli, events);
+	if (ret <= 0)
+		goto close;
 
 	if (cli->keepalive_idx >= 0)
 		return;
@@ -5156,6 +5242,109 @@ close:
 	og_client_release(loop, cli);
 }
 
+enum og_agent_state {
+	OG_AGENT_RECEIVING_HEADER	= 0,
+	OG_AGENT_RECEIVING_PAYLOAD,
+	OG_AGENT_PROCESSING_RESPONSE,
+};
+
+static int og_agent_state_recv_hdr_rest(struct og_client *cli)
+{
+	char *ptr;
+
+	ptr = strstr(cli->buf, "\r\n\r\n");
+	if (!ptr)
+		return 0;
+
+	cli->msg_len = ptr - cli->buf + 4;
+
+	ptr = strstr(cli->buf, "Content-Length: ");
+	if (ptr) {
+		sscanf(ptr, "Content-Length: %i[^\r\n]", &cli->content_length);
+		if (cli->content_length < 0)
+			return -1;
+		cli->msg_len += cli->content_length;
+	}
+
+	return 1;
+}
+
+static void og_agent_reset_state(struct og_client *cli)
+{
+	cli->state = OG_AGENT_RECEIVING_HEADER;
+	cli->buf_len = 0;
+	memset(cli->buf, 0, sizeof(cli->buf));
+}
+
+static int og_agent_state_process_response(struct og_client *cli)
+{
+	printf("respuesta recibida (len=%d):\n", cli->buf_len);
+	printf("%s", cli->buf);
+
+	return 0;
+}
+
+static void og_agent_read_cb(struct ev_loop *loop, struct ev_io *io, int events)
+{
+	struct og_client *cli;
+	int ret;
+
+	cli = container_of(io, struct og_client, io);
+
+	ret = og_client_recv(cli, events);
+	if (ret <= 0)
+		goto close;
+
+	ev_timer_again(loop, &cli->timer);
+
+	cli->buf_len += ret;
+	if (cli->buf_len >= sizeof(cli->buf)) {
+		syslog(LOG_ERR, "client request from %s:%hu is too long\n",
+		       inet_ntoa(cli->addr.sin_addr), ntohs(cli->addr.sin_port));
+		goto close;
+	}
+
+	switch (cli->state) {
+	case OG_AGENT_RECEIVING_HEADER:
+		ret = og_agent_state_recv_hdr_rest(cli);
+		if (ret < 0)
+			goto close;
+		if (!ret)
+			return;
+
+		cli->state = OG_AGENT_RECEIVING_PAYLOAD;
+		/* Fall through. */
+	case OG_AGENT_RECEIVING_PAYLOAD:
+		/* Still not enough data to process request. */
+		if (cli->buf_len < cli->msg_len)
+			return;
+
+		cli->state = OG_AGENT_PROCESSING_RESPONSE;
+		/* fall through. */
+	case OG_AGENT_PROCESSING_RESPONSE:
+		ret = og_agent_state_process_response(cli);
+		if (ret < 0) {
+			syslog(LOG_ERR, "Failed to process HTTP request from %s:%hu\n",
+			       inet_ntoa(cli->addr.sin_addr),
+			       ntohs(cli->addr.sin_port));
+			goto close;
+		}
+		syslog(LOG_DEBUG, "leaving client %s:%hu in keepalive mode\n",
+		       inet_ntoa(cli->addr.sin_addr),
+		       ntohs(cli->addr.sin_port));
+		og_agent_reset_state(cli);
+		break;
+	default:
+		syslog(LOG_ERR, "unknown state, critical internal error\n");
+		goto close;
+	}
+	return;
+close:
+	ev_timer_stop(loop, &cli->timer);
+	og_client_release(loop, cli);
+}
+
+
 static void og_client_timer_cb(struct ev_loop *loop, ev_timer *timer, int events)
 {
 	struct og_client *cli;
@@ -5171,7 +5360,16 @@ static void og_client_timer_cb(struct ev_loop *loop, ev_timer *timer, int events
 	og_client_release(loop, cli);
 }
 
-static int socket_s, socket_rest;
+static int socket_s, socket_rest, socket_agent_rest;
+
+static void og_agent_send_probe(int client_sd)
+{
+	const char msg[] = "GET /probe HTTP/1.1\r\nContent-Length:0\r\n";
+	if(send(client_sd, msg, strlen(msg), 0) == -1)
+		syslog(LOG_INFO, "Error sending probe\n");
+	else
+		syslog(LOG_INFO, "Sent probe to socket: %d\n", client_sd);
+}
 
 static void og_server_accept_cb(struct ev_loop *loop, struct ev_io *io,
 				int events)
@@ -5196,18 +5394,31 @@ static void og_server_accept_cb(struct ev_loop *loop, struct ev_io *io,
 		return;
 	}
 	memcpy(&cli->addr, &client_addr, sizeof(client_addr));
-	cli->keepalive_idx = -1;
+	if (io->fd == socket_agent_rest)
+		cli->keepalive_idx = 0;
+	else
+		cli->keepalive_idx = -1;
 
 	if (io->fd == socket_rest)
 		cli->rest = true;
+	else if (io->fd == socket_agent_rest)
+		cli->agent = true;
 
 	syslog(LOG_DEBUG, "connection from client %s:%hu\n",
 	       inet_ntoa(cli->addr.sin_addr), ntohs(cli->addr.sin_port));
 
-	ev_io_init(&cli->io, og_client_read_cb, client_sd, EV_READ);
+	if (io->fd == socket_agent_rest)
+		ev_io_init(&cli->io, og_agent_read_cb, client_sd, EV_READ);
+	else
+		ev_io_init(&cli->io, og_client_read_cb, client_sd, EV_READ);
+
 	ev_io_start(loop, &cli->io);
 	ev_timer_init(&cli->timer, og_client_timer_cb, OG_CLIENT_TIMEOUT, 0.);
 	ev_timer_start(loop, &cli->timer);
+	list_add(&cli->list, &client_list);
+
+	if (io->fd == socket_agent_rest)
+		og_agent_send_probe(client_sd);
 }
 
 static int og_socket_server_init(const char *port)
@@ -5239,7 +5450,7 @@ static int og_socket_server_init(const char *port)
 
 int main(int argc, char *argv[])
 {
-	struct ev_io ev_io_server, ev_io_server_rest;
+	struct ev_io ev_io_server, ev_io_server_rest, ev_io_agent_rest;
 	struct ev_loop *loop = ev_default_loop(0);
 	int i;
 
@@ -5281,6 +5492,13 @@ int main(int argc, char *argv[])
 
 	ev_io_init(&ev_io_server_rest, og_server_accept_cb, socket_rest, EV_READ);
 	ev_io_start(loop, &ev_io_server_rest);
+
+	socket_agent_rest = og_socket_server_init("8889");
+	if (socket_agent_rest < 0)
+		exit(EXIT_FAILURE);
+
+	ev_io_init(&ev_io_agent_rest, og_server_accept_cb, socket_agent_rest, EV_READ);
+	ev_io_start(loop, &ev_io_agent_rest);
 
 	infoLog(1); // Inicio de sesión
 
