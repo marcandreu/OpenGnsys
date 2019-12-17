@@ -95,7 +95,7 @@ if ($cmd){
 			$cmd->ParamSetValor("@idtipoaccion",$idtarea);
 			$cmd->ParamSetValor("@descriaccion",$descritarea);
 			$cmd->ParamSetValor("@idtarea",$idtarea);
-			$resul=ejecucionTarea($idtarea);
+			$resul=run_task($idtarea);
 			$literal="resultado_ejecutar_tareas";
 			break;
 	}
