@@ -864,19 +864,19 @@ struct og_task {
 struct og_cmd {
 	struct list_head list;
 	uint32_t	client_id;
-	struct og_task	task;
+	const char	*params;
 	const char	*ip;
 	const char	*mac;
 };
 
 static LIST_HEAD(cmd_list);
 
-static const struct og_cmd *og_cmd_find(uint32_t client_id)
+static const struct og_cmd *og_cmd_find(char *client_ip)
 {
 	struct og_cmd *cmd, *next;
 
 	list_for_each_entry_safe(cmd, next, &cmd_list, list) {
-		if (cmd->client_id != client_id)
+		if (strcmp(cmd->ip, client_ip))
 			continue;
 
 		list_del(&cmd->list);
@@ -888,6 +888,7 @@ static const struct og_cmd *og_cmd_find(uint32_t client_id)
 
 static void og_cmd_free(const struct og_cmd *cmd)
 {
+	free((void *)cmd->params);
 	free((void *)cmd->ip);
 	free((void *)cmd->mac);
 	free((void *)cmd);
@@ -903,7 +904,7 @@ static int og_deliver_pending_command(const struct og_cmd *cmd, int *socket,
 	TRAMA *msg;
 	int len;
 
-	len = snprintf(buf, sizeof(buf), "%s\r", cmd->task.params);
+	len = snprintf(buf, sizeof(buf), "%s\r", cmd->params);
 
 	msg = og_msg_alloc(buf, len);
 	if (!msg)
@@ -950,7 +951,7 @@ static bool ComandosPendientes(TRAMA *ptrTrama, struct og_client *cli)
 		return false;
 	}
 
-	cmd = og_cmd_find(atoi(ido));
+	cmd = og_cmd_find(iph);
 	if (cmd) {
 		liberaMemoria(iph);
 		liberaMemoria(ido);
@@ -4405,7 +4406,7 @@ static int og_queue_task_command(struct og_dbi *dbi, const struct og_task *task,
 		}
 
 		cmd->client_id	= dbi_result_get_uint(result, "idordenador");
-		cmd->task	= *task;
+		cmd->params	= task->params;
 
 		cmd->ip		= strdup(dbi_result_get_string(result, "ip"));
 		cmd->mac	= strdup(dbi_result_get_string(result, "mac"));
