@@ -3299,28 +3299,6 @@ static int og_json_parse_partition_setup(json_t *element,
 	return 0;
 }
 
-static int og_cmd_legacy_send(struct og_msg_params *params, const char *cmd,
-			      const char *state)
-{
-	char buf[4096] = {};
-	int len, err = 0;
-	TRAMA *msg;
-
-	len = snprintf(buf, sizeof(buf), "nfn=%s\r", cmd);
-
-	msg = og_msg_alloc(buf, len);
-	if (!msg)
-		return -1;
-
-	if (!og_send_cmd((char **)params->ips_array, params->ips_array_len,
-			 state, msg))
-		err = -1;
-
-	og_msg_free(msg);
-
-	return err;
-}
-
 static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
 {
 	const char *key;
@@ -3341,7 +3319,7 @@ static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_cmd_legacy_send(params, "Sondeo", CLIENTE_APAGADO);
+	return og_send_request("probe", OG_METHOD_GET, params, NULL);
 }
 
 struct og_buffer {
@@ -3688,12 +3666,9 @@ static int og_cmd_run_get(json_t *element, struct og_msg_params *params,
 
 static int og_cmd_session(json_t *element, struct og_msg_params *params)
 {
-	char buf[4096], iph[4096];
-	int err = 0, len;
+	json_t *clients, *value;
 	const char *key;
-	unsigned int i;
-	json_t *value;
-	TRAMA *msg;
+	int err = 0;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
@@ -3718,25 +3693,10 @@ static int og_cmd_session(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_PARTITION))
 		return -1;
 
-	for (i = 0; i < params->ips_array_len; i++) {
-		snprintf(iph + strlen(iph), sizeof(iph), "%s;",
-			 params->ips_array[i]);
-	}
-	len = snprintf(buf, sizeof(buf),
-		       "nfn=IniciarSesion\riph=%s\rdsk=%s\rpar=%s\r",
-		       iph, params->disk, params->partition);
+	clients = json_copy(element);
+	json_object_del(clients, "clients");
 
-	msg = og_msg_alloc(buf, len);
-	if (!msg)
-		return -1;
-
-	if (!og_send_cmd((char **)params->ips_array, params->ips_array_len,
-			 CLIENTE_APAGADO, msg))
-		err = -1;
-
-	og_msg_free(msg);
-
-	return 0;
+	return og_send_request("session", OG_METHOD_POST, params, clients);
 }
 
 static int og_cmd_poweroff(json_t *element, struct og_msg_params *params)
@@ -3759,7 +3719,7 @@ static int og_cmd_poweroff(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_cmd_legacy_send(params, "Apagar", CLIENTE_OCUPADO);
+	return og_send_request("poweroff", OG_METHOD_POST, params, NULL);
 }
 
 static int og_cmd_refresh(json_t *element, struct og_msg_params *params)
@@ -3782,7 +3742,7 @@ static int og_cmd_refresh(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_cmd_legacy_send(params, "Actualizar", CLIENTE_APAGADO);
+	return og_send_request("refresh", OG_METHOD_GET, params, NULL);
 }
 
 static int og_cmd_reboot(json_t *element, struct og_msg_params *params)
@@ -3805,7 +3765,7 @@ static int og_cmd_reboot(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_cmd_legacy_send(params, "Reiniciar", CLIENTE_OCUPADO);
+	return og_send_request("reboot", OG_METHOD_POST, params, NULL);
 }
 
 static int og_cmd_stop(json_t *element, struct og_msg_params *params)
@@ -3828,7 +3788,7 @@ static int og_cmd_stop(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_cmd_legacy_send(params, "Purgar", CLIENTE_APAGADO);
+	return og_send_request("stop", OG_METHOD_POST, params, NULL);
 }
 
 static int og_cmd_hardware(json_t *element, struct og_msg_params *params)
@@ -3851,17 +3811,14 @@ static int og_cmd_hardware(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_cmd_legacy_send(params, "InventarioHardware",
-				  CLIENTE_OCUPADO);
+	return og_send_request("hardware", OG_METHOD_GET, params, NULL);
 }
 
 static int og_cmd_software(json_t *element, struct og_msg_params *params)
 {
-	char buf[4096] = {};
-	int err = 0, len;
+	json_t *clients, *value;
 	const char *key;
-	json_t *value;
-	TRAMA *msg;
+	int err = 0;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
@@ -3887,29 +3844,17 @@ static int og_cmd_software(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_PARTITION))
 		return -1;
 
-	len = snprintf(buf, sizeof(buf),
-		       "nfn=InventarioSoftware\rdsk=%s\rpar=%s\r",
-		       params->disk, params->partition);
+	clients = json_copy(element);
+	json_object_del(clients, "clients");
 
-	msg = og_msg_alloc(buf, len);
-	if (!msg)
-		return -1;
-
-	og_send_cmd((char **)params->ips_array, params->ips_array_len,
-		    CLIENTE_OCUPADO, msg);
-
-	og_msg_free(msg);
-
-	return 0;
+	return og_send_request("software", OG_METHOD_POST, params, clients);
 }
 
 static int og_cmd_create_image(json_t *element, struct og_msg_params *params)
 {
-	char buf[4096] = {};
-	int err = 0, len;
+	json_t *value, *clients;
 	const char *key;
-	json_t *value;
-	TRAMA *msg;
+	int err = 0;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
@@ -3950,30 +3895,17 @@ static int og_cmd_create_image(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_REPO))
 		return -1;
 
-	len = snprintf(buf, sizeof(buf),
-			"nfn=CrearImagen\rdsk=%s\rpar=%s\rcpt=%s\ridi=%s\rnci=%s\ripr=%s\r",
-			params->disk, params->partition, params->code,
-			params->id, params->name, params->repository);
+	clients = json_copy(element);
+	json_object_del(clients, "clients");
 
-	msg = og_msg_alloc(buf, len);
-	if (!msg)
-		return -1;
-
-	og_send_cmd((char **)params->ips_array, params->ips_array_len,
-		    CLIENTE_OCUPADO, msg);
-
-	og_msg_free(msg);
-
-	return 0;
+	return og_send_request("image/create", OG_METHOD_POST, params, clients);
 }
 
 static int og_cmd_restore_image(json_t *element, struct og_msg_params *params)
 {
-	char buf[4096] = {};
-	int err = 0, len;
+	json_t *clients, *value;
 	const char *key;
-	json_t *value;
-	TRAMA *msg;
+	int err = 0;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
@@ -4018,32 +3950,17 @@ static int og_cmd_restore_image(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_ID))
 		return -1;
 
-	len = snprintf(buf, sizeof(buf),
-		       "nfn=RestaurarImagen\ridi=%s\rdsk=%s\rpar=%s\rifs=%s\r"
-		       "nci=%s\ripr=%s\rptc=%s\r",
-		       params->id, params->disk, params->partition,
-		       params->profile, params->name,
-		       params->repository, params->type);
+	clients = json_copy(element);
+	json_object_del(clients, "clients");
 
-	msg = og_msg_alloc(buf, len);
-	if (!msg)
-		return -1;
-
-	og_send_cmd((char **)params->ips_array, params->ips_array_len,
-		    CLIENTE_OCUPADO, msg);
-
-	og_msg_free(msg);
-
-	return 0;
+	return og_send_request("image/restore", OG_METHOD_POST, params, clients);
 }
 
 static int og_cmd_setup(json_t *element, struct og_msg_params *params)
 {
-	char buf[4096] = {};
-	int err = 0, len;
+	json_t *value, *clients;
 	const char *key;
-	json_t *value;
-	TRAMA *msg;
+	int err = 0;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
@@ -4078,28 +3995,10 @@ static int og_cmd_setup(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_PART_3))
 		return -1;
 
-	len = snprintf(buf, sizeof(buf),
-			"nfn=Configurar\rdsk=%s\rcfg=dis=%s*che=%s*tch=%s!",
-			params->disk, params->disk, params->cache, params->cache_size);
+	clients = json_copy(element);
+	json_object_del(clients, "clients");
 
-	for (unsigned int i = 0; i < OG_PARTITION_MAX; ++i) {
-		const struct og_partition *part = &params->partition_setup[i];
-
-		len += snprintf(buf + strlen(buf), sizeof(buf),
-			"par=%s*cpt=%s*sfi=%s*tam=%s*ope=%s%%",
-			part->number, part->code, part->filesystem, part->size, part->format);
-	}
-
-	msg = og_msg_alloc(buf, len + 1);
-	if (!msg)
-		return -1;
-
-	og_send_cmd((char **)params->ips_array, params->ips_array_len,
-			CLIENTE_OCUPADO, msg);
-
-	og_msg_free(msg);
-
-	return 0;
+	return og_send_request("setup", OG_METHOD_POST, params, clients);
 }
 
 static int og_cmd_run_schedule(json_t *element, struct og_msg_params *params)
@@ -4119,9 +4018,7 @@ static int og_cmd_run_schedule(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	og_cmd_legacy_send(params, "EjecutaComandosPendientes", CLIENTE_OCUPADO);
-
-	return 0;
+	return og_send_request("run/schedule", OG_METHOD_GET, params, NULL);
 }
 
 static int og_cmd_create_basic_image(json_t *element, struct og_msg_params *params)
@@ -4781,7 +4678,7 @@ static int og_cmd_task_post(json_t *element, struct og_msg_params *params)
 	list_for_each_entry(cmd, &cmd_list, list)
 		params->ips_array[params->ips_array_len++] = cmd->ip;
 
-	return og_cmd_legacy_send(params, "Actualizar", CLIENTE_OCUPADO);
+	return og_send_request("run/schedule", OG_METHOD_GET, params, NULL);
 }
 
 static int og_client_method_not_found(struct og_client *cli)
