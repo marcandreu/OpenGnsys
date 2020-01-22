@@ -152,6 +152,7 @@ struct og_client {
 	bool			agent;
 	int			content_length;
 	char			auth_token[64];
+	const char		*status;
 };
 
 static inline int og_client_socket(const struct og_client *cli)
@@ -3020,6 +3021,15 @@ struct og_msg_params {
 	uint64_t	flags;
 };
 
+#define OG_COMPUTER_NAME_MAXLEN	100
+
+struct og_computer {
+	unsigned int	id;
+	unsigned int	center;
+	unsigned int	room;
+	char		name[OG_COMPUTER_NAME_MAXLEN + 1];
+};
+
 #define OG_REST_PARAM_ADDR			(1UL << 0)
 #define OG_REST_PARAM_MAC			(1UL << 1)
 #define OG_REST_PARAM_WOL_TYPE			(1UL << 2)
@@ -3319,7 +3329,7 @@ static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("probe", OG_METHOD_GET, params, NULL);
+	return og_send_request("probe", OG_METHOD_POST, params, NULL);
 }
 
 struct og_buffer {
@@ -3341,48 +3351,45 @@ static int og_cmd_get_clients(json_t *element, struct og_msg_params *params,
 			      char *buffer_reply)
 {
 	json_t *root, *array, *addr, *state, *object;
+	struct og_client *client;
 	struct og_buffer og_buffer = {
 		.data	= buffer_reply,
 	};
-	int i;
 
 	array = json_array();
 	if (!array)
 		return -1;
 
-	for (i = 0; i < MAXIMOS_CLIENTES; i++) {
-		if (tbsockets[i].ip[0] == '\0')
-			continue;
-
-		object = json_object();
-		if (!object) {
-			json_decref(array);
-			return -1;
+	list_for_each_entry(client, &client_list, list) {
+		if (client->agent) {
+			object = json_object();
+			if (!object) {
+				json_decref(array);
+				return -1;
+			}
+			addr = json_string(inet_ntoa(client->addr.sin_addr));
+			if (!addr) {
+				json_decref(object);
+				json_decref(array);
+				return -1;
+			}
+			json_object_set_new(object, "addr", addr);
+			state = json_string(client->status);
+			if (!state) {
+				json_decref(object);
+				json_decref(array);
+				return -1;
+			}
+			json_object_set_new(object, "state", state);
+			json_array_append_new(array, object);
 		}
-		addr = json_string(tbsockets[i].ip);
-		if (!addr) {
-			json_decref(object);
-			json_decref(array);
-			return -1;
-		}
-		json_object_set_new(object, "addr", addr);
-
-		state = json_string(tbsockets[i].estado);
-		if (!state) {
-			json_decref(object);
-			json_decref(array);
-			return -1;
-		}
-		json_object_set_new(object, "state", state);
-
-		json_array_append_new(array, object);
 	}
+
 	root = json_pack("{s:o}", "clients", array);
 	if (!root) {
 		json_decref(array);
 		return -1;
 	}
-
 	json_dump_callback(root, og_json_dump_clients, &og_buffer, 0);
 	json_decref(root);
 
@@ -3512,12 +3519,10 @@ static int og_json_parse_run(json_t *element, struct og_msg_params *params)
 
 static int og_cmd_run_post(json_t *element, struct og_msg_params *params)
 {
-	char buf[4096] = {}, iph[4096] = {};
-	int err = 0, len;
+	json_t *value, *clients;
 	const char *key;
 	unsigned int i;
-	json_t *value;
-	TRAMA *msg;
+	int err = 0;
 
 	if (json_typeof(element) != JSON_OBJECT)
 		return -1;
@@ -3541,31 +3546,10 @@ static int og_cmd_run_post(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_ECHO))
 		return -1;
 
-	for (i = 0; i < params->ips_array_len; i++) {
-		len = snprintf(iph + strlen(iph), sizeof(iph), "%s;",
-			       params->ips_array[i]);
-	}
+	clients = json_copy(element);
+	json_object_del(clients, "clients");
 
-	if (params->echo) {
-		len = snprintf(buf, sizeof(buf),
-			       "nfn=ConsolaRemota\riph=%s\rscp=%s\r",
-			       iph, params->run_cmd);
-	} else {
-		len = snprintf(buf, sizeof(buf),
-			       "nfn=EjecutarScript\riph=%s\rscp=%s\r",
-			       iph, params->run_cmd);
-	}
-
-	msg = og_msg_alloc(buf, len);
-	if (!msg)
-		return -1;
-
-	if (!og_send_cmd((char **)params->ips_array, params->ips_array_len,
-			 CLIENTE_OCUPADO, msg))
-		err = -1;
-
-	og_msg_free(msg);
-
+	err = og_send_request("shell/run", OG_METHOD_POST, params, clients);
 	if (err < 0)
 		return err;
 
@@ -5241,7 +5225,6 @@ close:
 	og_client_release(loop, cli);
 }
 
-
 static void og_client_timer_cb(struct ev_loop *loop, ev_timer *timer, int events)
 {
 	struct og_client *cli;
@@ -5257,16 +5240,88 @@ static void og_client_timer_cb(struct ev_loop *loop, ev_timer *timer, int events
 	og_client_release(loop, cli);
 }
 
-static int socket_s, socket_rest, socket_agent_rest;
-
-static void og_agent_send_probe(int client_sd)
+static int og_get_computer_info(struct og_computer *computer,
+				struct in_addr addr)
 {
-	const char msg[] = "GET /probe HTTP/1.1\r\nContent-Length:0\r\n";
-	if(send(client_sd, msg, strlen(msg), 0) == -1)
-		syslog(LOG_INFO, "Error sending probe\n");
-	else
-		syslog(LOG_INFO, "Sent probe to socket: %d\n", client_sd);
+	const char *msglog;
+	struct og_dbi *dbi;
+	dbi_result result;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+		       __func__, __LINE__);
+		return -1;
+	}
+	result = dbi_conn_queryf(dbi->conn,
+		"SELECT ordenadores.idordenador,"
+		"	ordenadores.nombreordenador,"
+		"	ordenadores.idaula,"
+		"	centros.idcentro FROM ordenadores "
+		"INNER JOIN aulas ON aulas.idaula=ordenadores.idaula "
+		"INNER JOIN centros ON centros.idcentro=aulas.idcentro "
+		"WHERE ordenadores.ip='%s'", inet_ntoa(addr));
+	if (!result) {
+		dbi_conn_error(dbi->conn, &msglog);
+		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
+		       __func__, __LINE__, msglog);
+		return -1;
+	}
+	if (!dbi_result_next_row(result)) {
+		syslog(LOG_ERR, "client does not exist in database (%s:%d)\n",
+		       __func__, __LINE__);
+		dbi_result_free(result);
+		return -1;
+	}
+
+	computer->id = dbi_result_get_uint(result, "idordenador");
+	computer->center = dbi_result_get_uint(result, "idcentro");
+	computer->room = dbi_result_get_uint(result, "idaula");
+	strncpy(computer->name,
+		dbi_result_get_string(result, "nombreordenador"),
+		OG_COMPUTER_NAME_MAXLEN);
+
+	dbi_result_free(result);
+	og_dbi_close(dbi);
+	return 0;
 }
+
+static void og_agent_send_probe(struct og_client *cli)
+{
+	json_t *id, *name, *center, *room, *object;
+	struct og_msg_params params;
+	struct og_computer computer;
+	int err;
+
+	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	if (err < 0)
+		return;
+
+	params.ips_array[0] = inet_ntoa(cli->addr.sin_addr);
+	params.ips_array_len = 1;
+
+	id = json_integer(computer.id);
+	center = json_integer(computer.center);
+	room = json_integer(computer.room);
+	name = json_string(computer.name);
+
+	object = json_object();
+	json_object_set_new(object, "id", id);
+	json_object_set_new(object, "name", name);
+	json_object_set_new(object, "center", center);
+	json_object_set_new(object, "room", room);
+
+	err = og_send_request("probe", OG_METHOD_POST, &params, object);
+	if (err < 0) {
+		syslog(LOG_ERR, "Can't send probe to: %s\n",
+		       params.ips_array[0]);
+	} else {
+		syslog(LOG_INFO, "Sent probe to: %s\n",
+		       params.ips_array[0]);
+	}
+}
+
+static int socket_s, socket_rest, socket_agent_rest;
 
 static void og_server_accept_cb(struct ev_loop *loop, struct ev_io *io,
 				int events)
@@ -5315,7 +5370,7 @@ static void og_server_accept_cb(struct ev_loop *loop, struct ev_io *io,
 	list_add(&cli->list, &client_list);
 
 	if (io->fd == socket_agent_rest)
-		og_agent_send_probe(client_sd);
+		og_agent_send_probe(cli);
 }
 
 static int og_socket_server_init(const char *port)
