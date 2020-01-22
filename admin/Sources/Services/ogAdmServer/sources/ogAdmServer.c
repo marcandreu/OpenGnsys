@@ -10,6 +10,7 @@
 #include "ogAdmLib.c"
 #include "dbi.h"
 #include "list.h"
+#include "schedule.h"
 #include <ev.h>
 #include <syslog.h>
 #include <sys/ioctl.h>
@@ -18,6 +19,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <jansson.h>
+#include <time.h>
 
 static char usuario[LONPRM]; // Usuario de acceso a la base de datos
 static char pasguor[LONPRM]; // Password del usuario
@@ -3019,6 +3021,7 @@ struct og_msg_params {
 	bool		echo;
 	struct og_partition	partition_setup[OG_PARTITION_MAX];
 	struct og_sync_params sync_setup;
+	struct og_schedule_time time;
 	const char	*task_id;
 	uint64_t	flags;
 };
@@ -3064,6 +3067,12 @@ struct og_computer {
 #define OG_REST_PARAM_SYNC_METHOD		(1UL << 29)
 #define OG_REST_PARAM_ECHO			(1UL << 30)
 #define OG_REST_PARAM_TASK			(1UL << 31)
+#define OG_REST_PARAM_TIME_YEARS		(1UL << 32)
+#define OG_REST_PARAM_TIME_MONTHS		(1UL << 33)
+#define OG_REST_PARAM_TIME_DAYS			(1UL << 34)
+#define OG_REST_PARAM_TIME_HOURS		(1UL << 35)
+#define OG_REST_PARAM_TIME_AM_PM		(1UL << 36)
+#define OG_REST_PARAM_TIME_MINUTES		(1UL << 37)
 
 enum og_rest_method {
 	OG_METHOD_GET	= 0,
@@ -3178,6 +3187,15 @@ static int og_json_parse_string(json_t *element, const char **str)
 		return -1;
 
 	*str = json_string_value(element);
+	return 0;
+}
+
+static int og_json_parse_uint(json_t *element, unsigned int *integer)
+{
+	if (json_typeof(element) != JSON_INTEGER)
+		return -1;
+
+	*integer = json_integer_value(element);
 	return 0;
 }
 
@@ -3314,6 +3332,40 @@ static int og_json_parse_partition_setup(json_t *element,
 			return -1;
 	}
 	return 0;
+}
+
+static int og_json_parse_time_params(json_t *element,
+				     struct og_msg_params *params)
+{
+	const char *key;
+	json_t *value;
+	int err = 0;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "years")) {
+			err = og_json_parse_uint(value, &params->time.years);
+			params->flags |= OG_REST_PARAM_TIME_YEARS;
+		} else if (!strcmp(key, "months")) {
+			err = og_json_parse_uint(value, &params->time.months);
+			params->flags |= OG_REST_PARAM_TIME_MONTHS;
+		} else if (!strcmp(key, "days")) {
+			err = og_json_parse_uint(value, &params->time.days);
+			params->flags |= OG_REST_PARAM_TIME_DAYS;
+	        } else if (!strcmp(key, "hours")) {
+			err = og_json_parse_uint(value, &params->time.hours);
+			params->flags |= OG_REST_PARAM_TIME_HOURS;
+		} else if (!strcmp(key, "am_pm")) {
+			err = og_json_parse_uint(value, &params->time.am_pm);
+			params->flags |= OG_REST_PARAM_TIME_AM_PM;
+		} else if (!strcmp(key, "minutes")) {
+			err = og_json_parse_uint(value, &params->time.minutes);
+			params->flags |= OG_REST_PARAM_TIME_MINUTES;
+		}
+		if (err != 0)
+			return err;
+	}
+
+	return err;
 }
 
 static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
@@ -4549,7 +4601,7 @@ static int og_queue_task_clients(struct og_dbi *dbi, struct og_task *task)
 	return 0;
 }
 
-static int og_queue_procedure(struct og_dbi *dbi, struct og_task *task)
+static int og_dbi_queue_procedure(struct og_dbi *dbi, struct og_task *task)
 {
 	uint32_t procedure_id;
 	const char *msglog;
@@ -4570,7 +4622,7 @@ static int og_queue_procedure(struct og_dbi *dbi, struct og_task *task)
 		procedure_id = dbi_result_get_uint(result, "procedimientoid");
 		if (procedure_id > 0) {
 			task->procedure_id = procedure_id;
-			if (og_queue_procedure(dbi, task))
+			if (og_dbi_queue_procedure(dbi, task))
 				return -1;
 			continue;
 		}
@@ -4585,7 +4637,7 @@ static int og_queue_procedure(struct og_dbi *dbi, struct og_task *task)
 	return 0;
 }
 
-static int og_queue_task(struct og_dbi *dbi, uint32_t task_id)
+static int og_dbi_queue_task(struct og_dbi *dbi, uint32_t task_id)
 {
 	struct og_task task = {};
 	uint32_t task_id_next;
@@ -4613,7 +4665,7 @@ static int og_queue_task(struct og_dbi *dbi, uint32_t task_id)
 		task_id_next = dbi_result_get_uint(result, "procedimientoid");
 
 		if (task_id_next > 0) {
-			if (og_queue_task(dbi, task_id_next))
+			if (og_dbi_queue_task(dbi, task_id_next))
 				return -1;
 
 			continue;
@@ -4623,13 +4675,26 @@ static int og_queue_task(struct og_dbi *dbi, uint32_t task_id)
 		task.scope = dbi_result_get_uint(result, "idambito");
 		task.filtered_scope = dbi_result_get_string(result, "restrambito");
 
-		og_queue_procedure(dbi, &task);
-
+		og_dbi_queue_procedure(dbi, &task);
 	}
 
 	dbi_result_free(result);
 
 	return 0;
+}
+
+void og_dbi_schedule_task(unsigned int task_id)
+{
+	struct og_dbi *dbi;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+			   __func__, __LINE__);
+		return;
+	}
+	og_dbi_queue_task(dbi, task_id);
+	og_dbi_close(dbi);
 }
 
 static int og_cmd_task_post(json_t *element, struct og_msg_params *params)
@@ -4663,13 +4728,199 @@ static int og_cmd_task_post(json_t *element, struct og_msg_params *params)
 		return -1;
 	}
 
-	og_queue_task(dbi, atoi(params->task_id));
+	og_dbi_queue_task(dbi, atoi(params->task_id));
 	og_dbi_close(dbi);
 
 	list_for_each_entry(cmd, &cmd_list, list)
 		params->ips_array[params->ips_array_len++] = cmd->ip;
 
 	return og_send_request("run/schedule", OG_METHOD_GET, params, NULL);
+}
+
+static int og_dbi_schedule_get(void)
+{
+	uint32_t schedule_id, task_id;
+	struct og_schedule_time time;
+	struct og_dbi *dbi;
+	const char *msglog;
+	dbi_result result;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+		       __func__, __LINE__);
+		return -1;
+	}
+
+	result = dbi_conn_queryf(dbi->conn,
+				 "SELECT idprogramacion, tipoaccion, identificador, "
+				 "sesion, annos, meses, diario, dias, semanas, horas, "
+				 "ampm, minutos FROM programaciones "
+				 "WHERE suspendida = 0");
+	if (!result) {
+		dbi_conn_error(dbi->conn, &msglog);
+		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
+		       __func__, __LINE__, msglog);
+		return -1;
+	}
+
+	while (dbi_result_next_row(result)) {
+		memset(&time, 0, sizeof(time));
+		schedule_id = dbi_result_get_uint(result, "idprogramacion");
+		task_id = dbi_result_get_uint(result, "identificador");
+		time.years = dbi_result_get_uint(result, "annos");
+		time.months = dbi_result_get_uint(result, "meses");
+		time.days = dbi_result_get_uint(result, "diario");
+		time.hours = dbi_result_get_uint(result, "horas");
+		time.am_pm = dbi_result_get_uint(result, "ampm");
+		time.minutes = dbi_result_get_uint(result, "minutos");
+
+		og_schedule_create(schedule_id, task_id, &time);
+	}
+
+	dbi_result_free(result);
+
+	return 0;
+}
+
+static int og_dbi_schedule_create(struct og_dbi *dbi,
+				  struct og_msg_params *params)
+{
+	unsigned int schedule_id;
+	const char *msglog;
+	dbi_result result;
+	uint8_t type = 3;
+
+	result = dbi_conn_queryf(dbi->conn,
+				 "INSERT INTO programaciones (tipoaccion,"
+				 " identificador, nombrebloque, annos, meses,"
+				 " diario, horas, ampm, minutos) VALUES (%d,"
+				 " %s, '%s', %d, %d, %d, %d, %d, %d)", type,
+				 params->id, params->name, params->time.years,
+				 params->time.months, params->time.days,
+				 params->time.hours, params->time.am_pm,
+				 params->time.minutes);
+	if (!result) {
+		dbi_conn_error(dbi->conn, &msglog);
+		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
+		       __func__, __LINE__, msglog);
+		return -1;
+	}
+	dbi_result_free(result);
+
+	schedule_id = dbi_conn_sequence_last(dbi->conn, NULL);
+	og_schedule_create(schedule_id, atoi(params->id), &params->time);
+
+	return 0;
+}
+
+static int og_dbi_schedule_delete(struct og_dbi *dbi, uint32_t id)
+{
+	const char *msglog;
+	dbi_result result;
+
+	result = dbi_conn_queryf(dbi->conn,
+				 "DELETE FROM programaciones WHERE idprogramacion=%d",
+				 id);
+	if (!result) {
+		dbi_conn_error(dbi->conn, &msglog);
+		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
+		       __func__, __LINE__, msglog);
+		return -1;
+	}
+	dbi_result_free(result);
+
+	return 0;
+}
+
+static struct ev_loop *og_loop;
+
+static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
+{
+	struct og_dbi *dbi;
+	const char *key;
+	json_t *value;
+	int err;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "task")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "time_params"))
+			err = og_json_parse_time_params(value, params);
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ID |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_TIME_YEARS |
+					    OG_REST_PARAM_TIME_MONTHS |
+					    OG_REST_PARAM_TIME_HOURS |
+					    OG_REST_PARAM_TIME_MINUTES |
+					    OG_REST_PARAM_TIME_AM_PM))
+		return -1;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+			   __func__, __LINE__);
+		return -1;
+	}
+
+	err = og_dbi_schedule_create(dbi, params);
+	og_dbi_close(dbi);
+
+	og_schedule_update(og_loop);
+
+	return err;
+}
+
+static int og_cmd_schedule_delete(json_t *element, struct og_msg_params *params)
+{
+	struct og_dbi *dbi;
+	const char *key;
+	json_t *value;
+	int err;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else {
+			return -1;
+		}
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ID))
+		return -1;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+			   __func__, __LINE__);
+		return -1;
+	}
+
+	err = og_dbi_schedule_delete(dbi, atoi(params->id));
+	og_dbi_close(dbi);
+
+	og_schedule_delete(og_loop, atoi(params->id));
+
+	return err;
 }
 
 static int og_client_method_not_found(struct og_client *cli)
@@ -4975,6 +5226,26 @@ static int og_client_state_process_payload_rest(struct og_client *cli)
 			return og_client_bad_request(cli);
 		}
 		err = og_cmd_task_post(root, &params);
+	} else if (!strncmp(cmd, "schedule/create",
+			    strlen("schedule/create"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command task with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_schedule_create(root, &params);
+	} else if (!strncmp(cmd, "schedule/delete",
+			    strlen("schedule/delete"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command task with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_schedule_delete(root, &params);
 	} else {
 		syslog(LOG_ERR, "unknown command: %.32s ...\n", cmd);
 		err = og_client_not_found(cli);
@@ -5640,8 +5911,9 @@ static int og_socket_server_init(const char *port)
 int main(int argc, char *argv[])
 {
 	struct ev_io ev_io_server, ev_io_server_rest, ev_io_agent_rest;
-	struct ev_loop *loop = ev_default_loop(0);
 	int i;
+
+	og_loop = ev_default_loop(0);
 
 	if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
 		exit(EXIT_FAILURE);
@@ -5673,21 +5945,26 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 
 	ev_io_init(&ev_io_server, og_server_accept_cb, socket_s, EV_READ);
-	ev_io_start(loop, &ev_io_server);
+	ev_io_start(og_loop, &ev_io_server);
 
 	socket_rest = og_socket_server_init("8888");
 	if (socket_rest < 0)
 		exit(EXIT_FAILURE);
 
 	ev_io_init(&ev_io_server_rest, og_server_accept_cb, socket_rest, EV_READ);
-	ev_io_start(loop, &ev_io_server_rest);
+	ev_io_start(og_loop, &ev_io_server_rest);
 
 	socket_agent_rest = og_socket_server_init("8889");
 	if (socket_agent_rest < 0)
 		exit(EXIT_FAILURE);
 
 	ev_io_init(&ev_io_agent_rest, og_server_accept_cb, socket_agent_rest, EV_READ);
-	ev_io_start(loop, &ev_io_agent_rest);
+	ev_io_start(og_loop, &ev_io_agent_rest);
+
+	if (og_dbi_schedule_get() < 0)
+		exit(EXIT_FAILURE);
+
+	og_schedule_next(og_loop);
 
 	infoLog(1); // Inicio de sesión
 
@@ -5697,7 +5974,7 @@ int main(int argc, char *argv[])
 	syslog(LOG_INFO, "Waiting for connections\n");
 
 	while (1)
-		ev_loop(loop, 0);
+		ev_loop(og_loop, 0);
 
 	exit(EXIT_SUCCESS);
 }
