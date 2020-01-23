@@ -132,6 +132,7 @@ enum og_client_state {
 };
 
 #define OG_MSG_REQUEST_MAXLEN	4096
+#define OG_CMD_MAXLEN		64
 
 /* Shut down connection if there is no complete message after 10 seconds. */
 #define OG_CLIENT_TIMEOUT	10
@@ -153,6 +154,7 @@ struct og_client {
 	int			content_length;
 	char			auth_token[64];
 	const char		*status;
+	char			last_cmd[OG_CMD_MAXLEN];
 };
 
 static inline int og_client_socket(const struct og_client *cli)
@@ -3068,23 +3070,25 @@ enum og_rest_method {
 	OG_METHOD_POST,
 };
 
-static int og_client_find(const char *ip)
+static struct og_client *og_client_find(const char *ip)
 {
 	struct og_client *client;
 	struct in_addr addr;
+	int res;
 
-	const int res = inet_aton(ip, &addr);
-	if (res == 0) {
+	res = inet_aton(ip, &addr);
+	if (!res) {
 		syslog(LOG_ERR, "Invalid IP string: %s\n", ip);
-		return -1;
+		return NULL;
 	}
 
 	list_for_each_entry(client, &client_list, list) {
 		if (client->addr.sin_addr.s_addr == addr.s_addr && client->agent) {
-			return client->io.fd;
+			return client;
 		}
 	}
-	return -1;
+
+	return NULL;
 }
 
 static int og_send_request(const char *cmd,
@@ -3092,11 +3096,14 @@ static int og_send_request(const char *cmd,
 			   const struct og_msg_params *params,
 			   const json_t *data)
 {
-	const char content_type[] = "Content-Type:application/json";
+	const char *content_type = "Content-Type: application/json";
 	char content [OG_MSG_REQUEST_MAXLEN - 700] = {};
 	char buf[OG_MSG_REQUEST_MAXLEN] = {};
 	unsigned int content_length;
 	char method_str[5] = {};
+	struct og_client *cli;
+	unsigned int i;
+	int client_sd;
 
 	if (method == OG_METHOD_GET)
 		snprintf(method_str, 5, "GET");
@@ -3108,30 +3115,30 @@ static int og_send_request(const char *cmd,
 	if (!data)
 		content_length = 0;
 	else
-		content_length = json_dumpb(data,
-					    content,
+		content_length = json_dumpb(data, content,
 					    OG_MSG_REQUEST_MAXLEN - 700,
 					    JSON_COMPACT);
 
-	snprintf(buf,
-		 OG_MSG_REQUEST_MAXLEN,
-		 "%s /%s HTTP/1.1\r\nContent-Length:%d\r\n%s\r\n\r\n%s",
-		 method_str,
-		 cmd,
-		 content_length,
-		 content_type,
-		 content);
+	snprintf(buf, OG_MSG_REQUEST_MAXLEN,
+		 "%s /%s HTTP/1.1\r\nContent-Length: %d\r\n%s\r\n\r\n%s",
+		 method_str, cmd, content_length, content_type, content);
 
-	for (unsigned int i = 0; i < params->ips_array_len; ++i) {
-		const int client_sd = og_client_find(params->ips_array[i]);
-		if (client_sd == -1) {
-		syslog(LOG_INFO,
-		       "Client %s not conected\n",
-		       params->ips_array[i]);
+	for (i = 0; i < params->ips_array_len; i++) {
+		cli = og_client_find(params->ips_array[i]);
+		if (!cli)
+			continue;
+
+		client_sd = cli->io.fd;
+		if (client_sd < 0) {
+			syslog(LOG_INFO, "Client %s not conected\n",
+			       params->ips_array[i]);
+			continue;
 		}
-		int res = send(client_sd, buf, strlen(buf), 0);
-		if (res == -1)
-			return res;
+
+		if (send(client_sd, buf, strlen(buf), 0) < 0)
+			continue;
+
+		strncpy(cli->last_cmd, cmd, OG_CMD_MAXLEN);
 	}
 
 	return 0;
@@ -5157,12 +5164,103 @@ static void og_agent_reset_state(struct og_client *cli)
 	memset(cli->buf, 0, sizeof(cli->buf));
 }
 
-static int og_agent_state_process_response(struct og_client *cli)
+static int og_resp_probe(struct og_client *cli, json_t *data)
 {
-	printf("respuesta recibida (len=%d):\n", cli->buf_len);
-	printf("%s", cli->buf);
+	bool status = false;
+	const char *key;
+	json_t *value;
+	int err = 0;
+
+	if (json_typeof(data) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(data, key, value) {
+		if (!strcmp(key, "status")) {
+			err = og_json_parse_string(value, &cli->status);
+			if (err < 0)
+				return err;
+
+			status = true;
+		} else {
+			return -1;
+		}
+	}
+
+	return status ? 0 : -1;
+}
+
+static int og_resp_shell_run(struct og_client *cli, json_t *data)
+{
+	const char *output = NULL;
+	char filename[4096];
+	const char *key;
+	json_t *value;
+	int err = -1;
+	FILE *file;
+
+	if (json_typeof(data) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(data, key, value) {
+		if (!strcmp(key, "out")) {
+			err = og_json_parse_string(value, &output);
+			if (err < 0)
+				return err;
+		} else {
+			return -1;
+		}
+	}
+
+	if (!output) {
+		syslog(LOG_ERR, "%s:%d: malformed json response\n",
+		       __FILE__, __LINE__);
+		return -1;
+	}
+
+	sprintf(filename, "/tmp/_Seconsola_%s", inet_ntoa(cli->addr.sin_addr));
+	file = fopen(filename, "wt");
+	if (!file) {
+		syslog(LOG_ERR, "cannot open file %s: %s\n",
+		       filename, strerror(errno));
+		return -1;
+	}
+
+	fprintf(file, "%s", output);
+	fclose(file);
 
 	return 0;
+}
+
+static int og_agent_state_process_response(struct og_client *cli)
+{
+	json_error_t json_err;
+	json_t *root;
+	int err = -1;
+	char *body;
+
+	if (strncmp(cli->buf, "HTTP/1.0 200 OK", strlen("HTTP/1.0 200 OK")))
+		return -1;
+
+	if (!cli->content_length)
+		return 0;
+
+	body = strstr(cli->buf, "\r\n\r\n") + 4;
+
+	root = json_loads(body, 0, &json_err);
+	if (!root) {
+		syslog(LOG_ERR, "%s:%d: malformed json line %d: %s\n",
+		       __FILE__, __LINE__, json_err.line, json_err.text);
+		return -1;
+	}
+
+	if (!strncmp(cli->last_cmd, "probe", strlen("probe")))
+		err = og_resp_probe(cli, root);
+	else if (!strncmp(cli->last_cmd, "shell/run", strlen("shell/run")))
+		err = og_resp_shell_run(cli, root);
+	else
+		err = -1;
+
+	return err;
 }
 
 static void og_agent_read_cb(struct ev_loop *loop, struct ev_io *io, int events)
