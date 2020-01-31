@@ -139,6 +139,9 @@ enum og_client_state {
 /* Shut down connection if there is no complete message after 10 seconds. */
 #define OG_CLIENT_TIMEOUT	10
 
+/* Agent client operation might take longer, shut down after 30 seconds. */
+#define OG_AGENT_CLIENT_TIMEOUT	30
+
 static LIST_HEAD(client_list);
 
 struct og_client {
@@ -2980,11 +2983,14 @@ static int og_client_state_process_payload(struct og_client *cli)
 #define OG_PARTITION_MAX 4
 
 struct og_partition {
+	const char	*disk;
 	const char	*number;
 	const char	*code;
 	const char	*size;
 	const char	*filesystem;
 	const char	*format;
+	const char	*os;
+	const char	*used_size;
 };
 
 struct og_sync_params {
@@ -3268,12 +3274,14 @@ static int og_json_parse_sync_params(json_t *element,
 #define OG_PARAM_PART_FILESYSTEM		(1UL << 2)
 #define OG_PARAM_PART_SIZE			(1UL << 3)
 #define OG_PARAM_PART_FORMAT			(1UL << 4)
+#define OG_PARAM_PART_DISK			(1UL << 5)
+#define OG_PARAM_PART_OS			(1UL << 6)
+#define OG_PARAM_PART_USED_SIZE			(1UL << 7)
 
 static int og_json_parse_partition(json_t *element,
-				   struct og_msg_params *params,
-				   unsigned int i)
+				   struct og_partition *part,
+				   uint64_t required_flags)
 {
-	struct og_partition *part = &params->partition_setup[i];
 	uint64_t flags = 0UL;
 	const char *key;
 	json_t *value;
@@ -3295,20 +3303,23 @@ static int og_json_parse_partition(json_t *element,
 		} else if (!strcmp(key, "format")) {
 			err = og_json_parse_string(value, &part->format);
 			flags |= OG_PARAM_PART_FORMAT;
+		} else if (!strcmp(key, "disk")) {
+			err = og_json_parse_string(value, &part->disk);
+			flags |= OG_PARAM_PART_DISK;
+		} else if (!strcmp(key, "os")) {
+			err = og_json_parse_string(value, &part->os);
+			flags |= OG_PARAM_PART_OS;
+		} else if (!strcmp(key, "used_size")) {
+			err = og_json_parse_string(value, &part->used_size);
+			flags |= OG_PARAM_PART_USED_SIZE;
 		}
 
 		if (err < 0)
 			return err;
 	}
 
-	if (flags != (OG_PARAM_PART_NUMBER |
-		      OG_PARAM_PART_CODE |
-		      OG_PARAM_PART_FILESYSTEM |
-		      OG_PARAM_PART_SIZE |
-		      OG_PARAM_PART_FORMAT))
+	if (flags != required_flags)
 		return -1;
-
-	params->flags |= (OG_REST_PARAM_PART_0 << i);
 
 	return err;
 }
@@ -3328,8 +3339,15 @@ static int og_json_parse_partition_setup(json_t *element,
 		if (json_typeof(k) != JSON_OBJECT)
 			return -1;
 
-		if (og_json_parse_partition(k, params, i) != 0)
+		if (og_json_parse_partition(k, &params->partition_setup[i],
+					    OG_PARAM_PART_NUMBER |
+					    OG_PARAM_PART_CODE |
+					    OG_PARAM_PART_FILESYSTEM |
+					    OG_PARAM_PART_SIZE |
+					    OG_PARAM_PART_FORMAT) < 0)
 			return -1;
+
+		params->flags |= (OG_REST_PARAM_PART_0 << i);
 	}
 	return 0;
 }
@@ -5683,6 +5701,118 @@ static int og_resp_software(json_t *data, struct og_client *cli)
 	return 0;
 }
 
+#define OG_PARAMS_RESP_REFRESH	(OG_PARAM_PART_DISK |		\
+				 OG_PARAM_PART_NUMBER |		\
+				 OG_PARAM_PART_CODE |		\
+				 OG_PARAM_PART_FILESYSTEM |	\
+				 OG_PARAM_PART_OS |		\
+				 OG_PARAM_PART_SIZE |		\
+				 OG_PARAM_PART_USED_SIZE)
+
+static int og_json_parse_partition_array(json_t *value,
+					 struct og_partition *partitions)
+{
+	json_t *element;
+	int i, err;
+
+	if (json_typeof(value) != JSON_ARRAY)
+		return -1;
+
+	for (i = 0; i < json_array_size(value) && i < OG_PARTITION_MAX; i++) {
+		element = json_array_get(value, i);
+
+		err = og_json_parse_partition(element, &partitions[i],
+					      OG_PARAMS_RESP_REFRESH);
+		if (err < 0)
+			return err;
+	}
+
+	return 0;
+}
+
+static int og_resp_refresh(json_t *data, struct og_client *cli)
+{
+	struct og_partition partitions[OG_PARTITION_MAX] = {};
+	char cfg[OG_MSG_RESPONSE_MAXLEN] = {};
+	const char *serial_number = NULL;
+	struct og_partition disk_setup;
+	struct og_computer computer;
+	struct og_dbi *dbi;
+	const char *key;
+	unsigned int i;
+	json_t *value;
+	int err = 0;
+	bool res;
+
+	if (json_typeof(data) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(data, key, value) {
+		if (!strcmp(key, "disk_setup")) {
+			err = og_json_parse_partition(value,
+						      &disk_setup,
+						      OG_PARAMS_RESP_REFRESH);
+		} else if (!strcmp(key, "partition_setup")) {
+			err = og_json_parse_partition_array(value, partitions);
+		} else if (!strcmp(key, "serial_number")) {
+			err = og_json_parse_string(value, &serial_number);
+		} else {
+			return -1;
+		}
+
+		if (err < 0)
+			return err;
+	}
+
+	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	if (err < 0)
+		return -1;
+
+	if (serial_number)
+		snprintf(cfg, sizeof(cfg), "ser=%s\n", serial_number);
+
+	snprintf(cfg + strlen(cfg), sizeof(cfg) - strlen(cfg),
+		 "disk=%s\tpar=%s\tcpt=%s\tfsi=%s\tsoi=%s\ttam=%s\tuso=%s\n",
+		 disk_setup.disk, disk_setup.number, disk_setup.code,
+		 disk_setup.filesystem, disk_setup.os, disk_setup.size,
+		 disk_setup.used_size);
+
+	for (i = 0; i < OG_PARTITION_MAX; i++) {
+		snprintf(cfg + strlen(cfg), sizeof(cfg) - strlen(cfg),
+			 "disk=%s\tpar=%s\tcpt=%s\tfsi=%s\tsoi=%s\ttam=%s\tuso=%s\n",
+			 partitions[i].disk, partitions[i].number,
+			 partitions[i].code, partitions[i].filesystem,
+			 partitions[i].os, partitions[i].size,
+			 partitions[i].used_size);
+	}
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+				  __func__, __LINE__);
+		return -1;
+	}
+	res = actualizaConfiguracion(dbi, cfg, computer.id);
+	og_dbi_close(dbi);
+
+	if (!res) {
+		syslog(LOG_ERR, "Problem updating client configuration\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int og_resp_setup(struct og_client *cli)
+{
+	struct og_msg_params params;
+
+	params.ips_array[0] = inet_ntoa(cli->addr.sin_addr);
+	params.ips_array_len = 1;
+
+	return og_send_request("refresh", OG_METHOD_GET, &params, NULL);
+}
+
 static int og_agent_state_process_response(struct og_client *cli)
 {
 	json_error_t json_err;
@@ -5713,6 +5843,10 @@ static int og_agent_state_process_response(struct og_client *cli)
 		err = og_resp_hardware(root, cli);
 	else if (!strncmp(cli->last_cmd, "software", strlen("software")))
 		err = og_resp_software(root, cli);
+	else if (!strncmp(cli->last_cmd, "refresh", strlen("refresh")))
+		err = og_resp_refresh(root, cli);
+	else if (!strncmp(cli->last_cmd, "setup", strlen("setup")))
+		err = og_resp_setup(cli);
 	else
 		err = -1;
 
@@ -5873,7 +6007,13 @@ static void og_server_accept_cb(struct ev_loop *loop, struct ev_io *io,
 		ev_io_init(&cli->io, og_client_read_cb, client_sd, EV_READ);
 
 	ev_io_start(loop, &cli->io);
-	ev_timer_init(&cli->timer, og_client_timer_cb, OG_CLIENT_TIMEOUT, 0.);
+	if (io->fd == socket_agent_rest) {
+		ev_timer_init(&cli->timer, og_client_timer_cb,
+			      OG_AGENT_CLIENT_TIMEOUT, 0.);
+	} else {
+		ev_timer_init(&cli->timer, og_client_timer_cb,
+			      OG_CLIENT_TIMEOUT, 0.);
+	}
 	ev_timer_start(loop, &cli->timer);
 	list_add(&cli->list, &client_list);
 
