@@ -3273,22 +3273,23 @@ static int og_dbi_schedule_get(void)
 }
 
 static int og_dbi_schedule_create(struct og_dbi *dbi,
-				  struct og_msg_params *params)
+				  struct og_msg_params *params,
+				  uint32_t *schedule_id)
 {
-	unsigned int schedule_id;
 	const char *msglog;
 	dbi_result result;
+	uint8_t suspended = 0;
 	uint8_t type = 3;
 
 	result = dbi_conn_queryf(dbi->conn,
 				 "INSERT INTO programaciones (tipoaccion,"
 				 " identificador, nombrebloque, annos, meses,"
-				 " diario, horas, ampm, minutos) VALUES (%d,"
-				 " %s, '%s', %d, %d, %d, %d, %d, %d)", type,
-				 params->id, params->name, params->time.years,
+				 " diario, horas, ampm, minutos, suspendida) VALUES (%d,"
+				 " %s, '%s', %d, %d, %d, %d, %d, %d, %d)", type,
+				 params->task_id, params->name, params->time.years,
 				 params->time.months, params->time.days,
 				 params->time.hours, params->time.am_pm,
-				 params->time.minutes);
+				 params->time.minutes, suspended);
 	if (!result) {
 		dbi_conn_error(dbi->conn, &msglog);
 		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
@@ -3297,8 +3298,33 @@ static int og_dbi_schedule_create(struct og_dbi *dbi,
 	}
 	dbi_result_free(result);
 
-	schedule_id = dbi_conn_sequence_last(dbi->conn, NULL);
-	og_schedule_create(schedule_id, atoi(params->id), &params->time);
+	*schedule_id = dbi_conn_sequence_last(dbi->conn, NULL);
+
+	return 0;
+}
+
+static int og_dbi_schedule_update(struct og_dbi *dbi,
+				  struct og_msg_params *params)
+{
+	const char *msglog;
+	dbi_result result;
+	uint8_t type = 3;
+
+	result = dbi_conn_queryf(dbi->conn,
+				 "UPDATE programaciones SET tipoaccion=%s, "
+				 " identificador='%s', nombrebloque=%d, annos=%d, meses=%d,"
+				 " diario=%d, horas=%d, ampm=%d, minutos=%d) WHERE idprogramacion=%d",
+				 type, params->task_id, params->name, params->time.years,
+				 params->time.months, params->time.days,
+				 params->time.hours, params->time.am_pm,
+				 params->time.minutes, params->id);
+	if (!result) {
+		dbi_conn_error(dbi->conn, &msglog);
+		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
+		       __func__, __LINE__, msglog);
+		return -1;
+	}
+	dbi_result_free(result);
 
 	return 0;
 }
@@ -3326,6 +3352,7 @@ static struct ev_loop *og_loop;
 
 static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
 {
+	uint32_t schedule_id;
 	struct og_dbi *dbi;
 	const char *key;
 	json_t *value;
@@ -3336,8 +3363,8 @@ static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
 
 	json_object_foreach(element, key, value) {
 		if (!strcmp(key, "task")) {
-			err = og_json_parse_string(value, &params->id);
-			params->flags |= OG_REST_PARAM_ID;
+			err = og_json_parse_string(value, &params->task_id);
+			params->flags |= OG_REST_PARAM_TASK;
 		} else if (!strcmp(key, "name")) {
 			err = og_json_parse_string(value, &params->name);
 			params->flags |= OG_REST_PARAM_NAME;
@@ -3348,7 +3375,7 @@ static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
 			break;
 	}
 
-	if (!og_msg_params_validate(params, OG_REST_PARAM_ID |
+	if (!og_msg_params_validate(params, OG_REST_PARAM_TASK |
 					    OG_REST_PARAM_NAME |
 					    OG_REST_PARAM_TIME_YEARS |
 					    OG_REST_PARAM_TIME_MONTHS |
@@ -3364,10 +3391,71 @@ static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
 		return -1;
 	}
 
-	err = og_dbi_schedule_create(dbi, params);
+	err = og_dbi_schedule_create(dbi, params, &schedule_id);
 	og_dbi_close(dbi);
 
-	og_schedule_update(og_loop);
+	if (err < 0)
+		return -1;
+
+	og_schedule_create(schedule_id, atoi(params->task_id), &params->time);
+	og_schedule_refresh(og_loop);
+
+	return err;
+}
+
+static int og_cmd_schedule_update(json_t *element, struct og_msg_params *params)
+{
+	struct og_dbi *dbi;
+	const char *key;
+	json_t *value;
+	int err;
+
+	if (json_typeof(element) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(element, key, value) {
+		if (!strcmp(key, "id")) {
+			err = og_json_parse_string(value, &params->id);
+			params->flags |= OG_REST_PARAM_ID;
+		} else if (!strcmp(key, "task")) {
+			err = og_json_parse_string(value, &params->task_id);
+			params->flags |= OG_REST_PARAM_TASK;
+		} else if (!strcmp(key, "name")) {
+			err = og_json_parse_string(value, &params->name);
+			params->flags |= OG_REST_PARAM_NAME;
+		} else if (!strcmp(key, "time_params"))
+			err = og_json_parse_time_params(value, params);
+
+		if (err < 0)
+			break;
+	}
+
+	if (!og_msg_params_validate(params, OG_REST_PARAM_ID |
+					    OG_REST_PARAM_TASK |
+					    OG_REST_PARAM_NAME |
+					    OG_REST_PARAM_TIME_YEARS |
+					    OG_REST_PARAM_TIME_MONTHS |
+					    OG_REST_PARAM_TIME_HOURS |
+					    OG_REST_PARAM_TIME_MINUTES |
+					    OG_REST_PARAM_TIME_AM_PM))
+		return -1;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+			   __func__, __LINE__);
+		return -1;
+	}
+
+	err = og_dbi_schedule_update(dbi, params);
+	og_dbi_close(dbi);
+
+	if (err < 0)
+		return err;
+
+	og_schedule_update(og_loop, atoi(params->id), atoi(params->task_id),
+			   &params->time);
+	og_schedule_refresh(og_loop);
 
 	return err;
 }
@@ -3735,6 +3823,16 @@ static int og_client_state_process_payload_rest(struct og_client *cli)
 			return og_client_bad_request(cli);
 		}
 		err = og_cmd_schedule_delete(root, &params);
+	} else if (!strncmp(cmd, "schedule/update",
+			    strlen("schedule/update"))) {
+		if (method != OG_METHOD_POST)
+			return og_client_method_not_found(cli);
+
+		if (!root) {
+			syslog(LOG_ERR, "command task with no payload\n");
+			return og_client_bad_request(cli);
+		}
+		err = og_cmd_schedule_update(root, &params);
 	} else {
 		syslog(LOG_ERR, "unknown command: %.32s ...\n", cmd);
 		err = og_client_not_found(cli);
