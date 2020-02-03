@@ -5768,7 +5768,7 @@ static int og_resp_refresh(json_t *data, struct og_client *cli)
 	if (err < 0)
 		return -1;
 
-	if (serial_number)
+	if (strlen(serial_number) > 0)
 		snprintf(cfg, sizeof(cfg), "ser=%s\n", serial_number);
 
 	snprintf(cfg + strlen(cfg), sizeof(cfg) - strlen(cfg),
