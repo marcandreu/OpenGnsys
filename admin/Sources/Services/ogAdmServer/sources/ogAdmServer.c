@@ -5653,21 +5653,16 @@ static int og_resp_software(json_t *data, struct og_client *cli)
 		return -1;
 
 	json_object_foreach(data, key, value) {
-		if (!strcmp(key, "software")) {
+		if (!strcmp(key, "software"))
 			err = og_json_parse_string(value, &software);
-			if (err < 0)
-				return -1;
-		} else if (!strcmp(key, "partition")) {
+		else if (!strcmp(key, "partition"))
 			err = og_json_parse_string(value, &partition);
-			if (err < 0)
-				return -1;
-		} else {
+		else
 			return -1;
-		}
-	}
 
-	if (err < 0)
-		return err;
+		if (err < 0)
+			return -1;
+	}
 
 	if (!software || !partition) {
 		syslog(LOG_ERR, "malformed response json\n");
@@ -5814,6 +5809,206 @@ static int og_resp_setup(struct og_client *cli)
 	return og_send_request("refresh", OG_METHOD_GET, &params, NULL);
 }
 
+struct og_image_legacy {
+	char software_id[20];
+	char image_id[20];
+	char name[120];
+	char repo[200];
+	char part[10];
+	char disk[10];
+	char code[60];
+};
+
+static int og_resp_image_create(json_t *data, struct og_client *cli)
+{
+	struct og_software_legacy soft_legacy;
+	struct og_image_legacy img_legacy;
+	const char *partition = NULL;
+	const char *software = NULL;
+	const char *image_id = NULL;
+	struct og_computer computer;
+	const char *disk = NULL;
+	const char *code = NULL;
+	const char *name = NULL;
+	const char *repo = NULL;
+	struct og_dbi *dbi;
+	const char *key;
+	json_t *value;
+	int err = 0;
+	bool res;
+
+	if (json_typeof(data) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(data, key, value) {
+		if (!strcmp(key, "software"))
+			err = og_json_parse_string(value, &software);
+		else if (!strcmp(key, "partition"))
+			err = og_json_parse_string(value, &partition);
+		else if (!strcmp(key, "disk"))
+			err = og_json_parse_string(value, &disk);
+		else if (!strcmp(key, "code"))
+			err = og_json_parse_string(value, &code);
+		else if (!strcmp(key, "id"))
+			err = og_json_parse_string(value, &image_id);
+		else if (!strcmp(key, "name"))
+			err = og_json_parse_string(value, &name);
+		else if (!strcmp(key, "repository"))
+			err = og_json_parse_string(value, &repo);
+		else
+			return -1;
+
+		if (err < 0)
+			return err;
+	}
+
+	if (!software || !partition || !disk || !code || !image_id || !name ||
+	    !repo) {
+		syslog(LOG_ERR, "malformed response json\n");
+		return -1;
+	}
+
+	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	if (err < 0)
+		return -1;
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+		       __func__, __LINE__);
+		return -1;
+	}
+
+	snprintf(soft_legacy.center, sizeof(soft_legacy.center), "%d",
+		 computer.center);
+	snprintf(soft_legacy.software, sizeof(soft_legacy.software), "%s",
+		 software);
+	snprintf(img_legacy.image_id, sizeof(img_legacy.image_id), "%s",
+		 image_id);
+	snprintf(soft_legacy.id, sizeof(soft_legacy.id), "%d", computer.id);
+	snprintf(img_legacy.part, sizeof(img_legacy.part), "%s", partition);
+	snprintf(img_legacy.disk, sizeof(img_legacy.disk), "%s", disk);
+	snprintf(img_legacy.code, sizeof(img_legacy.code), "%s", code);
+	snprintf(img_legacy.name, sizeof(img_legacy.name), "%s", name);
+	snprintf(img_legacy.repo, sizeof(img_legacy.repo), "%s", repo);
+
+	res = actualizaSoftware(dbi,
+				soft_legacy.software,
+				img_legacy.part,
+				soft_legacy.id,
+				computer.name,
+				soft_legacy.center);
+	if (!res) {
+		og_dbi_close(dbi);
+		syslog(LOG_ERR, "Problem updating client configuration\n");
+		return -1;
+	}
+
+	res = actualizaCreacionImagen(dbi,
+				      img_legacy.image_id,
+				      img_legacy.disk,
+				      img_legacy.part,
+				      img_legacy.code,
+				      img_legacy.repo,
+				      soft_legacy.id);
+	og_dbi_close(dbi);
+
+	if (!res) {
+		syslog(LOG_ERR, "Problem updating client configuration\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int og_resp_image_restore(json_t *data, struct og_client *cli)
+{
+	struct og_software_legacy soft_legacy;
+	struct og_image_legacy img_legacy;
+	const char *partition = NULL;
+	const char *image_id = NULL;
+	struct og_computer computer;
+	const char *disk = NULL;
+	dbi_result query_result;
+	struct og_dbi *dbi;
+	const char *key;
+	json_t *value;
+	int err = 0;
+	bool res;
+
+	if (json_typeof(data) != JSON_OBJECT)
+		return -1;
+
+	json_object_foreach(data, key, value) {
+		if (!strcmp(key, "partition"))
+			err = og_json_parse_string(value, &partition);
+		else if (!strcmp(key, "disk"))
+			err = og_json_parse_string(value, &disk);
+		else if (!strcmp(key, "image_id"))
+			err = og_json_parse_string(value, &image_id);
+		else
+			return -1;
+
+		if (err < 0)
+			return err;
+	}
+
+	if (!partition || !disk || !image_id) {
+		syslog(LOG_ERR, "malformed response json\n");
+		return -1;
+	}
+
+	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	if (err < 0)
+		return -1;
+
+	snprintf(img_legacy.image_id, sizeof(img_legacy.image_id), "%s", image_id);
+	snprintf(img_legacy.part, sizeof(img_legacy.part), "%s", partition);
+	snprintf(img_legacy.disk, sizeof(img_legacy.disk), "%s", disk);
+	sprintf(soft_legacy.id, "%d", computer.id);
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+		       __func__, __LINE__);
+		return -1;
+	}
+
+	query_result = dbi_conn_queryf(dbi->conn,
+				       "SELECT idperfilsoft FROM imagenes "
+				       " WHERE idimagen='%s'",
+				       image_id);
+	if (!query_result) {
+		og_dbi_close(dbi);
+		syslog(LOG_ERR, "failed to query database\n");
+		return -1;
+	}
+	if (!dbi_result_next_row(query_result)) {
+		dbi_result_free(query_result);
+		og_dbi_close(dbi);
+		syslog(LOG_ERR, "software profile does not exist in database\n");
+		return -1;
+	}
+	snprintf(img_legacy.software_id, sizeof(img_legacy.software_id),
+		 "%d", dbi_result_get_uint(query_result, "idperfilsoft"));
+	dbi_result_free(query_result);
+
+	res = actualizaRestauracionImagen(dbi,
+					  img_legacy.image_id,
+					  img_legacy.disk,
+					  img_legacy.part,
+					  soft_legacy.id,
+					  img_legacy.software_id);
+	og_dbi_close(dbi);
+
+	if (!res) {
+		syslog(LOG_ERR, "Problem updating client configuration\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static int og_agent_state_process_response(struct og_client *cli)
 {
 	json_error_t json_err;
@@ -5848,6 +6043,10 @@ static int og_agent_state_process_response(struct og_client *cli)
 		err = og_resp_refresh(root, cli);
 	else if (!strncmp(cli->last_cmd, "setup", strlen("setup")))
 		err = og_resp_setup(cli);
+	else if (!strncmp(cli->last_cmd, "image/create", strlen("image/create")))
+		err = og_resp_image_create(root, cli);
+	else if (!strncmp(cli->last_cmd, "image/restore", strlen("image/restore")))
+		err = og_resp_image_restore(root, cli);
 	else
 		err = -1;
 
