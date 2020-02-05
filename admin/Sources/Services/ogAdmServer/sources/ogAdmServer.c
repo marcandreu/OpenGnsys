@@ -5450,6 +5450,7 @@ static void og_agent_reset_state(struct og_client *cli)
 {
 	cli->state = OG_AGENT_RECEIVING_HEADER;
 	cli->buf_len = 0;
+	cli->content_length = 0;
 	memset(cli->buf, 0, sizeof(cli->buf));
 }
 
