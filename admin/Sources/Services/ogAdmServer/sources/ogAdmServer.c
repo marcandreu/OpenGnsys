@@ -3438,35 +3438,36 @@ static int og_cmd_get_clients(json_t *element, struct og_msg_params *params,
 		return -1;
 
 	list_for_each_entry(client, &client_list, list) {
-		if (client->agent) {
-			object = json_object();
-			if (!object) {
-				json_decref(array);
-				return -1;
-			}
-			addr = json_string(inet_ntoa(client->addr.sin_addr));
-			if (!addr) {
-				json_decref(object);
-				json_decref(array);
-				return -1;
-			}
-			json_object_set_new(object, "addr", addr);
-			state = json_string(client->status);
-			if (!state) {
-				json_decref(object);
-				json_decref(array);
-				return -1;
-			}
-			json_object_set_new(object, "state", state);
-			json_array_append_new(array, object);
-		}
-	}
+		if (!client->agent)
+			continue;
 
+		object = json_object();
+		if (!object) {
+			json_decref(array);
+			return -1;
+		}
+		addr = json_string(inet_ntoa(client->addr.sin_addr));
+		if (!addr) {
+			json_decref(object);
+			json_decref(array);
+			return -1;
+		}
+		json_object_set_new(object, "addr", addr);
+		state = json_string(client->status);
+		if (!state) {
+			json_decref(object);
+			json_decref(array);
+			return -1;
+		}
+		json_object_set_new(object, "state", state);
+		json_array_append_new(array, object);
+	}
 	root = json_pack("{s:o}", "clients", array);
 	if (!root) {
 		json_decref(array);
 		return -1;
 	}
+
 	json_dump_callback(root, og_json_dump_clients, &og_buffer, 0);
 	json_decref(root);
 
@@ -5454,8 +5455,8 @@ static void og_agent_reset_state(struct og_client *cli)
 	memset(cli->buf, 0, sizeof(cli->buf));
 }
 
-static int og_get_computer_info(struct og_computer *computer,
-				struct in_addr addr)
+static int og_dbi_get_computer_info(struct og_computer *computer,
+				    struct in_addr addr)
 {
 	const char *msglog;
 	struct og_dbi *dbi;
@@ -5568,10 +5569,12 @@ static int og_resp_shell_run(struct og_client *cli, json_t *data)
 	return 0;
 }
 
+#define OG_DB_INT_MAXLEN	11
+
 struct og_computer_legacy  {
-	char center[10];
-	char id[10];
-	char hardware[OG_MSG_RESPONSE_MAXLEN];
+	char center[OG_DB_INT_MAXLEN + 1];
+	char id[OG_DB_INT_MAXLEN + 1];
+	char hardware[4096];
 };
 
 static int og_resp_hardware(json_t *data, struct og_client *cli)
@@ -5603,13 +5606,13 @@ static int og_resp_hardware(json_t *data, struct og_client *cli)
 		return -1;
 	}
 
-	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	err = og_dbi_get_computer_info(&computer, cli->addr.sin_addr);
 	if (err < 0)
 		return -1;
 
 	snprintf(legacy.center, sizeof(legacy.center), "%d", computer.center);
-	snprintf(legacy.id, sizeof(legacy.id) - 1, "%d", computer.id);
-	snprintf(legacy.hardware, sizeof(legacy.hardware) - 1, "%s", hardware);
+	snprintf(legacy.id, sizeof(legacy.id), "%d", computer.id);
+	snprintf(legacy.hardware, sizeof(legacy.hardware), "%s", hardware);
 
 	dbi = og_dbi_open(&dbi_config);
 	if (!dbi) {
@@ -5630,11 +5633,13 @@ static int og_resp_hardware(json_t *data, struct og_client *cli)
 	return 0;
 }
 
+#define OG_DB_SMALLINT_MAXLEN	6
+
 struct og_software_legacy {
-	char software[OG_MSG_RESPONSE_MAXLEN];
-	char center[10];
-	char part[10];
-	char id[10];
+	char software[4096];
+	char center[OG_DB_INT_MAXLEN + 1];
+	char part[OG_DB_SMALLINT_MAXLEN + 1];
+	char id[OG_DB_INT_MAXLEN + 1];
 };
 
 static int og_resp_software(json_t *data, struct og_client *cli)
@@ -5669,14 +5674,14 @@ static int og_resp_software(json_t *data, struct og_client *cli)
 		return -1;
 	}
 
-	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	err = og_dbi_get_computer_info(&computer, cli->addr.sin_addr);
 	if (err < 0)
 		return -1;
 
-	snprintf(legacy.software, sizeof(legacy.software) - 1, "%s", software);
-	snprintf(legacy.part, sizeof(legacy.part) - 1, "%s", partition);
-	snprintf(legacy.id, sizeof(legacy.id)- 1, "%d", computer.id);
-	snprintf(legacy.center, sizeof(legacy.center) - 1, "%d", computer.center);
+	snprintf(legacy.software, sizeof(legacy.software), "%s", software);
+	snprintf(legacy.part, sizeof(legacy.part), "%s", partition);
+	snprintf(legacy.id, sizeof(legacy.id), "%d", computer.id);
+	snprintf(legacy.center, sizeof(legacy.center), "%d", computer.center);
 
 	dbi = og_dbi_open(&dbi_config);
 	if (!dbi) {
@@ -5729,10 +5734,10 @@ static int og_json_parse_partition_array(json_t *value,
 static int og_resp_refresh(json_t *data, struct og_client *cli)
 {
 	struct og_partition partitions[OG_PARTITION_MAX] = {};
-	char cfg[OG_MSG_RESPONSE_MAXLEN] = {};
 	const char *serial_number = NULL;
 	struct og_partition disk_setup;
 	struct og_computer computer;
+	char cfg[1024] = {};
 	struct og_dbi *dbi;
 	const char *key;
 	unsigned int i;
@@ -5760,7 +5765,7 @@ static int og_resp_refresh(json_t *data, struct og_client *cli)
 			return err;
 	}
 
-	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	err = og_dbi_get_computer_info(&computer, cli->addr.sin_addr);
 	if (err < 0)
 		return -1;
 
@@ -5809,14 +5814,18 @@ static int og_resp_setup(struct og_client *cli)
 	return og_send_request("refresh", OG_METHOD_GET, &params, NULL);
 }
 
+#define OG_DB_IMAGE_NAME_MAXLEN	50
+#define OG_DB_IP_MAXLEN		15
+#define OG_DB_INT8_MAXLEN	8
+
 struct og_image_legacy {
-	char software_id[20];
-	char image_id[20];
-	char name[120];
-	char repo[200];
-	char part[10];
-	char disk[10];
-	char code[60];
+	char software_id[OG_DB_INT_MAXLEN + 1];
+	char image_id[OG_DB_INT_MAXLEN + 1];
+	char name[OG_DB_IMAGE_NAME_MAXLEN + 1];
+	char repo[OG_DB_IP_MAXLEN + 1];
+	char part[OG_DB_SMALLINT_MAXLEN + 1];
+	char disk[OG_DB_SMALLINT_MAXLEN + 1];
+	char code[OG_DB_INT8_MAXLEN + 1];
 };
 
 static int og_resp_image_create(json_t *data, struct og_client *cli)
@@ -5868,16 +5877,9 @@ static int og_resp_image_create(json_t *data, struct og_client *cli)
 		return -1;
 	}
 
-	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	err = og_dbi_get_computer_info(&computer, cli->addr.sin_addr);
 	if (err < 0)
 		return -1;
-
-	dbi = og_dbi_open(&dbi_config);
-	if (!dbi) {
-		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
-		       __func__, __LINE__);
-		return -1;
-	}
 
 	snprintf(soft_legacy.center, sizeof(soft_legacy.center), "%d",
 		 computer.center);
@@ -5891,6 +5893,13 @@ static int og_resp_image_create(json_t *data, struct og_client *cli)
 	snprintf(img_legacy.code, sizeof(img_legacy.code), "%s", code);
 	snprintf(img_legacy.name, sizeof(img_legacy.name), "%s", name);
 	snprintf(img_legacy.repo, sizeof(img_legacy.repo), "%s", repo);
+
+	dbi = og_dbi_open(&dbi_config);
+	if (!dbi) {
+		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
+		       __func__, __LINE__);
+		return -1;
+	}
 
 	res = actualizaSoftware(dbi,
 				soft_legacy.software,
@@ -5958,14 +5967,15 @@ static int og_resp_image_restore(json_t *data, struct og_client *cli)
 		return -1;
 	}
 
-	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	err = og_dbi_get_computer_info(&computer, cli->addr.sin_addr);
 	if (err < 0)
 		return -1;
 
-	snprintf(img_legacy.image_id, sizeof(img_legacy.image_id), "%s", image_id);
+	snprintf(img_legacy.image_id, sizeof(img_legacy.image_id), "%s",
+		 image_id);
 	snprintf(img_legacy.part, sizeof(img_legacy.part), "%s", partition);
 	snprintf(img_legacy.disk, sizeof(img_legacy.disk), "%s", disk);
-	sprintf(soft_legacy.id, "%d", computer.id);
+	snprintf(soft_legacy.id, sizeof(soft_legacy.id), "%d", computer.id);
 
 	dbi = og_dbi_open(&dbi_config);
 	if (!dbi) {
@@ -6135,7 +6145,7 @@ static void og_agent_send_probe(struct og_client *cli)
 	struct og_computer computer;
 	int err;
 
-	err = og_get_computer_info(&computer, cli->addr.sin_addr);
+	err = og_dbi_get_computer_info(&computer, cli->addr.sin_addr);
 	if (err < 0)
 		return;
 
