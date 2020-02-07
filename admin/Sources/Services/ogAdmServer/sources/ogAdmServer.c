@@ -5772,6 +5772,11 @@ static int og_resp_refresh(json_t *data, struct og_client *cli)
 	if (strlen(serial_number) > 0)
 		snprintf(cfg, sizeof(cfg), "ser=%s\n", serial_number);
 
+	if (!disk_setup.disk || !disk_setup.number || !disk_setup.code ||
+	    !disk_setup.filesystem || !disk_setup.os || !disk_setup.size ||
+	    !disk_setup.used_size)
+		return -1;
+
 	snprintf(cfg + strlen(cfg), sizeof(cfg) - strlen(cfg),
 		 "disk=%s\tpar=%s\tcpt=%s\tfsi=%s\tsoi=%s\ttam=%s\tuso=%s\n",
 		 disk_setup.disk, disk_setup.number, disk_setup.code,
@@ -5779,6 +5784,12 @@ static int og_resp_refresh(json_t *data, struct og_client *cli)
 		 disk_setup.used_size);
 
 	for (i = 0; i < OG_PARTITION_MAX; i++) {
+		if (!partitions[i].disk || !partitions[i].number ||
+		    !partitions[i].code || !partitions[i].filesystem ||
+		    !partitions[i].os || !partitions[i].size ||
+		    !partitions[i].used_size)
+			continue;
+
 		snprintf(cfg + strlen(cfg), sizeof(cfg) - strlen(cfg),
 			 "disk=%s\tpar=%s\tcpt=%s\tfsi=%s\tsoi=%s\ttam=%s\tuso=%s\n",
 			 partitions[i].disk, partitions[i].number,
