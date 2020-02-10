@@ -5574,7 +5574,7 @@ static int og_resp_shell_run(struct og_client *cli, json_t *data)
 struct og_computer_legacy  {
 	char center[OG_DB_INT_MAXLEN + 1];
 	char id[OG_DB_INT_MAXLEN + 1];
-	char hardware[4096];
+	char hardware[8192];
 };
 
 static int og_resp_hardware(json_t *data, struct og_client *cli)
@@ -5636,7 +5636,7 @@ static int og_resp_hardware(json_t *data, struct og_client *cli)
 #define OG_DB_SMALLINT_MAXLEN	6
 
 struct og_software_legacy {
-	char software[4096];
+	char software[8192];
 	char center[OG_DB_INT_MAXLEN + 1];
 	char part[OG_DB_SMALLINT_MAXLEN + 1];
 	char id[OG_DB_INT_MAXLEN + 1];
