@@ -470,39 +470,6 @@ struct og_task {
 	const char	*params;
 };
 
-struct og_cmd {
-	struct list_head list;
-	uint32_t	client_id;
-	const char	*params;
-	const char	*ip;
-	const char	*mac;
-};
-
-static LIST_HEAD(cmd_list);
-
-static const struct og_cmd *og_cmd_find(char *client_ip)
-{
-	struct og_cmd *cmd, *next;
-
-	list_for_each_entry_safe(cmd, next, &cmd_list, list) {
-		if (strcmp(cmd->ip, client_ip))
-			continue;
-
-		list_del(&cmd->list);
-		return cmd;
-	}
-
-	return NULL;
-}
-
-static void og_cmd_free(const struct og_cmd *cmd)
-{
-	free((void *)cmd->params);
-	free((void *)cmd->ip);
-	free((void *)cmd->mac);
-	free((void *)cmd);
-}
-
 static TRAMA *og_msg_alloc(char *data, unsigned int len);
 static void og_msg_free(TRAMA *ptrTrama);
 
@@ -1554,6 +1521,8 @@ enum og_rest_method {
 	OG_METHOD_GET	= 0,
 	OG_METHOD_POST,
 };
+
+#define OG_METHOD_NO_HTTP 2
 
 static struct og_client *og_client_find(const char *ip)
 {
@@ -2891,6 +2860,273 @@ static int og_cmd_restore_incremental_image(json_t *element, struct og_msg_param
 	return 0;
 }
 
+enum og_cmd_type {
+	OG_CMD_WOL,
+	OG_CMD_PROBE,
+	OG_CMD_SHELL_RUN,
+	OG_CMD_SESSION,
+	OG_CMD_POWEROFF,
+	OG_CMD_REFRESH,
+	OG_CMD_REBOOT,
+	OG_CMD_STOP,
+	OG_CMD_HARDWARE,
+	OG_CMD_SOFTWARE,
+	OG_CMD_IMAGE_CREATE,
+	OG_CMD_IMAGE_RESTORE,
+	OG_CMD_SETUP,
+	OG_CMD_RUN_SCHEDULE,
+	OG_CMD_MAX
+};
+
+struct og_cmd {
+	struct list_head	list;
+	uint32_t		client_id;
+	const char		*ip;
+	const char		*mac;
+	enum og_cmd_type	type;
+	enum og_rest_method	method;
+	struct og_msg_params	params;
+	json_t			*json;
+};
+
+static LIST_HEAD(cmd_list);
+
+static const struct og_cmd *og_cmd_find(const char *client_ip)
+{
+	struct og_cmd *cmd, *next;
+
+	list_for_each_entry_safe(cmd, next, &cmd_list, list) {
+		if (strcmp(cmd->ip, client_ip))
+			continue;
+
+		list_del(&cmd->list);
+		return cmd;
+	}
+
+	return NULL;
+}
+
+static void og_cmd_free(const struct og_cmd *cmd)
+{
+	struct og_msg_params *params = (struct og_msg_params *)&cmd->params;
+	int i;
+
+	for (i = 0; i < params->ips_array_len; i++) {
+		free((void *)params->ips_array[i]);
+		free((void *)params->mac_array[i]);
+	}
+	free((void *)params->wol_type);
+
+	if (cmd->json)
+		json_decref(cmd->json);
+
+	free((void *)cmd->ip);
+	free((void *)cmd->mac);
+	free((void *)cmd);
+}
+
+static int og_cmd_legacy_wol(const char *input, struct og_cmd *cmd)
+{
+	char wol_type[2];
+
+	if (sscanf(input, "mar=%s", wol_type) != 1) {
+		syslog(LOG_ERR, "malformed database legacy input\n");
+		return -1;
+	}
+	cmd->type = OG_CMD_WOL;
+	cmd->method = OG_METHOD_NO_HTTP;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.mac_array[0] = strdup(cmd->mac);
+	cmd->params.ips_array_len = 1;
+	cmd->params.wol_type = strdup(wol_type);
+
+	return 0;
+}
+
+static int og_cmd_legacy_probe(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_PROBE;
+	cmd->method = OG_METHOD_POST;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_shell_run(const char *input, struct og_cmd *cmd)
+{
+	json_t *root, *script, *echo;
+
+	script = json_string(input + 4);
+	echo = json_boolean(false);
+	root = json_object();
+
+	json_object_set_new(root, "run", script);
+	json_object_set_new(root, "echo", echo);
+
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->type = OG_CMD_SHELL_RUN;
+	cmd->method = OG_METHOD_POST;
+	cmd->json = root;
+	return 0;
+}
+
+static int og_cmd_legacy_session(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_SESSION;
+	cmd->method = OG_METHOD_POST;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_poweroff(const char *input, struct og_cmd *cmd)
+{
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->method = OG_METHOD_POST;
+	cmd->type = OG_CMD_POWEROFF;
+	cmd->json = NULL;
+	return 0;
+}
+
+static int og_cmd_legacy_refresh(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_REFRESH;
+	cmd->method = OG_METHOD_GET;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_reboot(const char *input, struct og_cmd *cmd)
+{
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->method = OG_METHOD_POST;
+	cmd->type = OG_CMD_REBOOT;
+	cmd->json = NULL;
+	return 0;
+}
+
+static int og_cmd_legacy_stop(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_STOP;
+	cmd->method = OG_METHOD_POST;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_hardware(const char *input, struct og_cmd *cmd)
+{
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->method = OG_METHOD_GET;
+	cmd->type = OG_CMD_HARDWARE;
+	cmd->json = NULL;
+	return 0;
+}
+
+static int og_cmd_legacy_software(const char *input, struct og_cmd *cmd)
+{
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->method = OG_METHOD_GET;
+	cmd->type = OG_CMD_SOFTWARE;
+	cmd->json = NULL;
+	return 0;
+}
+
+static int og_cmd_legacy_image_create(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_IMAGE_CREATE;
+	cmd->method = OG_METHOD_POST;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_image_restore(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_IMAGE_RESTORE;
+	cmd->method = OG_METHOD_POST;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_setup(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_SETUP;
+	cmd->method = OG_METHOD_POST;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy_run_schedule(const char *input, struct og_cmd *cmd)
+{
+	cmd->type = OG_CMD_RUN_SCHEDULE;
+	cmd->method = OG_METHOD_GET;
+
+	/* TODO: json */
+
+	return 0;
+}
+
+static int og_cmd_legacy(const char *input, struct og_cmd *cmd)
+{
+	char legacy_cmd[32] = {};
+	int err = -1;
+
+	if (sscanf(input, "nfn=%31s\r", legacy_cmd) != 1) {
+		syslog(LOG_ERR, "malformed database legacy input\n");
+		return -1;
+	}
+	input = strchr(input, '\r') + 1;
+
+	if (!strcmp(legacy_cmd, "Arrancar")) {
+		err = og_cmd_legacy_wol(input, cmd);
+	} else if (!strcmp(legacy_cmd, "Sondeo")) {
+		err = og_cmd_legacy_probe(input, cmd);
+	} else if (!strcmp(legacy_cmd, "EjecutarScript")) {
+		err = og_cmd_legacy_shell_run(input, cmd);
+	} else if (!strcmp(legacy_cmd, "IniciarSesion")) {
+		err = og_cmd_legacy_session(input, cmd);
+	} else if (!strcmp(legacy_cmd, "Apagar")) {
+		err = og_cmd_legacy_poweroff(input, cmd);
+	} else if (!strcmp(legacy_cmd, "Actualizar")) {
+		err = og_cmd_legacy_refresh(input, cmd);
+	} else if (!strcmp(legacy_cmd, "Reiniciar")) {
+		err = og_cmd_legacy_reboot(input, cmd);
+	} else if (!strcmp(legacy_cmd, "Purgar")) {
+		err = og_cmd_legacy_stop(input, cmd);
+	} else if (!strcmp(legacy_cmd, "InventarioHardware")) {
+		err = og_cmd_legacy_hardware(input, cmd);
+	} else if (!strcmp(legacy_cmd, "InventarioSoftware")) {
+		err = og_cmd_legacy_software(input, cmd);
+	} else if (!strcmp(legacy_cmd, "CrearImagen")) {
+		err = og_cmd_legacy_image_create(input, cmd);
+	} else if (!strcmp(legacy_cmd, "RestaurarImagen")) {
+		err = og_cmd_legacy_image_restore(input, cmd);
+	} else if (!strcmp(legacy_cmd, "Configurar")) {
+		err = og_cmd_legacy_setup(input, cmd);
+	} else if (!strcmp(legacy_cmd, "EjecutaComandosPendientes") ||
+		   !strcmp(legacy_cmd, "Actualizar")) {
+		err = og_cmd_legacy_run_schedule(input, cmd);
+	}
+
+	return err;
+}
+
 static int og_queue_task_command(struct og_dbi *dbi, const struct og_task *task,
 				 char *query)
 {
@@ -2914,10 +3150,9 @@ static int og_queue_task_command(struct og_dbi *dbi, const struct og_task *task,
 		}
 
 		cmd->client_id	= dbi_result_get_uint(result, "idordenador");
-		cmd->params	= task->params;
-
 		cmd->ip		= strdup(dbi_result_get_string(result, "ip"));
 		cmd->mac	= strdup(dbi_result_get_string(result, "mac"));
+		og_cmd_legacy(task->params, cmd);
 
 		list_add_tail(&cmd->list, &cmd_list);
 
@@ -3130,6 +3365,7 @@ static int og_dbi_queue_task(struct og_dbi *dbi, uint32_t task_id)
 {
 	struct og_task task = {};
 	uint32_t task_id_next;
+	struct og_cmd *cmd;
 	const char *msglog;
 	dbi_result result;
 
@@ -3168,6 +3404,17 @@ static int og_dbi_queue_task(struct og_dbi *dbi, uint32_t task_id)
 	}
 
 	dbi_result_free(result);
+
+	list_for_each_entry(cmd, &cmd_list, list) {
+		if (cmd->type != OG_CMD_WOL)
+			continue;
+
+		if (!Levanta((char **)cmd->params.ips_array,
+			     (char **)cmd->params.mac_array,
+			     cmd->params.ips_array_len,
+			     (char *)cmd->params.wol_type))
+			return -1;
+	}
 
 	return 0;
 }
@@ -4634,6 +4881,38 @@ static int og_agent_state_process_response(struct og_client *cli)
 	return err;
 }
 
+static const char *og_cmd_to_uri[OG_CMD_MAX] = {
+	[OG_CMD_WOL]		= "wol",
+	[OG_CMD_PROBE]		= "probe",
+	[OG_CMD_SHELL_RUN]	= "shell/run",
+	[OG_CMD_SESSION]	= "session",
+	[OG_CMD_POWEROFF]	= "poweroff",
+	[OG_CMD_REFRESH]	= "refresh",
+	[OG_CMD_REBOOT]		= "reboot",
+	[OG_CMD_STOP]		= "stop",
+	[OG_CMD_HARDWARE]	= "hardware",
+	[OG_CMD_SOFTWARE]	= "software",
+	[OG_CMD_IMAGE_CREATE]	= "image/create",
+	[OG_CMD_IMAGE_RESTORE]	= "image/restore",
+	[OG_CMD_SETUP]		= "setup",
+	[OG_CMD_RUN_SCHEDULE]	= "run/schedule",
+};
+
+static void og_agent_deliver_pending_cmd(struct og_client *cli)
+{
+	const struct og_cmd *cmd;
+	const char *uri;
+
+	cmd = og_cmd_find(inet_ntoa(cli->addr.sin_addr));
+	if (!cmd)
+		return;
+
+	uri = og_cmd_to_uri[cmd->type];
+        og_send_request(uri, cmd->method, &cmd->params, cmd->json);
+
+	og_cmd_free(cmd);
+}
+
 static void og_agent_read_cb(struct ev_loop *loop, struct ev_io *io, int events)
 {
 	struct og_client *cli;
@@ -4679,6 +4958,8 @@ static void og_agent_read_cb(struct ev_loop *loop, struct ev_io *io, int events)
 			       ntohs(cli->addr.sin_port));
 			goto close;
 		}
+		og_agent_deliver_pending_cmd(cli);
+
 		syslog(LOG_DEBUG, "leaving client %s:%hu in keepalive mode\n",
 		       inet_ntoa(cli->addr.sin_addr),
 		       ntohs(cli->addr.sin_port));
