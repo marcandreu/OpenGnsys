@@ -2927,12 +2927,13 @@ static void og_cmd_free(const struct og_cmd *cmd)
 
 static int og_cmd_legacy_wol(const char *input, struct og_cmd *cmd)
 {
-	char wol_type[2];
+	char wol_type[2] = {};
 
 	if (sscanf(input, "mar=%s", wol_type) != 1) {
 		syslog(LOG_ERR, "malformed database legacy input\n");
 		return -1;
 	}
+
 	cmd->type = OG_CMD_WOL;
 	cmd->method = OG_METHOD_NO_HTTP;
 	cmd->params.ips_array[0] = strdup(cmd->ip);
@@ -2943,121 +2944,212 @@ static int og_cmd_legacy_wol(const char *input, struct og_cmd *cmd)
 	return 0;
 }
 
-static int og_cmd_legacy_probe(const char *input, struct og_cmd *cmd)
-{
-	cmd->type = OG_CMD_PROBE;
-	cmd->method = OG_METHOD_POST;
-
-	/* TODO: json */
-
-	return 0;
-}
-
 static int og_cmd_legacy_shell_run(const char *input, struct og_cmd *cmd)
 {
 	json_t *root, *script, *echo;
 
 	script = json_string(input + 4);
 	echo = json_boolean(false);
-	root = json_object();
 
+	root = json_object();
+	if (!root)
+		return -1;
 	json_object_set_new(root, "run", script);
 	json_object_set_new(root, "echo", echo);
 
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
 	cmd->type = OG_CMD_SHELL_RUN;
 	cmd->method = OG_METHOD_POST;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
 	cmd->json = root;
+
 	return 0;
 }
 
+#define OG_DB_SMALLINT_MAXLEN	6
+
 static int og_cmd_legacy_session(const char *input, struct og_cmd *cmd)
 {
-	cmd->type = OG_CMD_SESSION;
-	cmd->method = OG_METHOD_POST;
+	char part_str[OG_DB_SMALLINT_MAXLEN + 1];
+	char disk_str[OG_DB_SMALLINT_MAXLEN + 1];
+	json_t *root, *disk, *partition;
 
-	/* TODO: json */
+	if (sscanf(input, "dsk=%s\rpar=%s\r", disk_str, part_str) != 2)
+		return -1;
+	partition = json_string(part_str);
+	disk = json_string(disk_str);
+
+	root = json_object();
+	if (!root)
+		return -1;
+	json_object_set_new(root, "partition", partition);
+	json_object_set_new(root, "disk", disk);
+
+	cmd->method = OG_METHOD_POST;
+	cmd->type = OG_CMD_SESSION;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = root;
 
 	return 0;
 }
 
 static int og_cmd_legacy_poweroff(const char *input, struct og_cmd *cmd)
 {
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
 	cmd->method = OG_METHOD_POST;
 	cmd->type = OG_CMD_POWEROFF;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
 	cmd->json = NULL;
+
 	return 0;
 }
 
 static int og_cmd_legacy_refresh(const char *input, struct og_cmd *cmd)
 {
-	cmd->type = OG_CMD_REFRESH;
 	cmd->method = OG_METHOD_GET;
-
-	/* TODO: json */
+	cmd->type = OG_CMD_REFRESH;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = NULL;
 
 	return 0;
 }
 
 static int og_cmd_legacy_reboot(const char *input, struct og_cmd *cmd)
 {
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
 	cmd->method = OG_METHOD_POST;
 	cmd->type = OG_CMD_REBOOT;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
 	cmd->json = NULL;
+
 	return 0;
 }
 
 static int og_cmd_legacy_stop(const char *input, struct og_cmd *cmd)
 {
-	cmd->type = OG_CMD_STOP;
 	cmd->method = OG_METHOD_POST;
-
-	/* TODO: json */
+	cmd->type = OG_CMD_STOP;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = NULL;
 
 	return 0;
 }
 
 static int og_cmd_legacy_hardware(const char *input, struct og_cmd *cmd)
 {
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
 	cmd->method = OG_METHOD_GET;
 	cmd->type = OG_CMD_HARDWARE;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
 	cmd->json = NULL;
+
 	return 0;
 }
 
 static int og_cmd_legacy_software(const char *input, struct og_cmd *cmd)
 {
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
 	cmd->method = OG_METHOD_GET;
 	cmd->type = OG_CMD_SOFTWARE;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
 	cmd->json = NULL;
+
 	return 0;
 }
+
+#define OG_DB_IMAGE_NAME_MAXLEN	50
+#define OG_DB_IP_MAXLEN		15
+#define OG_DB_INT8_MAXLEN	8
+#define OG_DB_INT_MAXLEN	11
+
+struct og_image_legacy {
+	char software_id[OG_DB_INT_MAXLEN + 1];
+	char image_id[OG_DB_INT_MAXLEN + 1];
+	char name[OG_DB_IMAGE_NAME_MAXLEN + 1];
+	char repo[OG_DB_IP_MAXLEN + 1];
+	char part[OG_DB_SMALLINT_MAXLEN + 1];
+	char disk[OG_DB_SMALLINT_MAXLEN + 1];
+	char code[OG_DB_INT8_MAXLEN + 1];
+};
 
 static int og_cmd_legacy_image_create(const char *input, struct og_cmd *cmd)
 {
+	json_t *root, *disk, *partition, *code, *image_id, *name, *repo;
+	struct og_image_legacy img = {};
+
+	if (sscanf(input, "dsk=%s\rpar=%s\rcpt=%s\ridi=%s\rnci=%s\ripr=%s\r",
+		   img.disk, img.part, img.code, img.image_id, img.name,
+		   img.repo) != 6)
+		return -1;
+	image_id = json_string(img.image_id);
+	partition = json_string(img.part);
+	code = json_string(img.code);
+	name = json_string(img.name);
+	repo = json_string(img.repo);
+	disk = json_string(img.disk);
+
+	root = json_object();
+	if (!root)
+		return -1;
+	json_object_set_new(root, "partition", partition);
+	json_object_set_new(root, "repository", repo);
+	json_object_set_new(root, "id", image_id);
+	json_object_set_new(root, "code", code);
+	json_object_set_new(root, "name", name);
+	json_object_set_new(root, "disk", disk);
+
 	cmd->type = OG_CMD_IMAGE_CREATE;
 	cmd->method = OG_METHOD_POST;
-
-	/* TODO: json */
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = root;
 
 	return 0;
 }
 
+#define OG_DB_RESTORE_TYPE_MAXLEN	64
+
 static int og_cmd_legacy_image_restore(const char *input, struct og_cmd *cmd)
 {
+	json_t *root, *disk, *partition, *image_id, *name, *repo;
+	char restore_type_str[OG_DB_RESTORE_TYPE_MAXLEN + 1] = {};
+	char software_id_str[OG_DB_INT_MAXLEN + 1] = {};
+	json_t *software_id, *restore_type;
+	struct og_image_legacy img = {};
+
+	if (sscanf(input,
+		   "dsk=%s\rpar=%s\ridi=%s\rnci=%s\ripr=%s\rifs=%s\rptc=%s\r",
+		   img.disk, img.part, img.image_id, img.name, img.repo,
+		   software_id_str, restore_type_str) != 7)
+		return -1;
+
+	restore_type = json_string(restore_type_str);
+	software_id = json_string(software_id_str);
+	image_id = json_string(img.image_id);
+	partition = json_string(img.part);
+	name = json_string(img.name);
+	repo = json_string(img.repo);
+	disk = json_string(img.disk);
+
+	root = json_object();
+	if (!root)
+		return -1;
+	json_object_set_new(root, "profile", software_id);
+	json_object_set_new(root, "partition", partition);
+	json_object_set_new(root, "type", restore_type);
+	json_object_set_new(root, "repository", repo);
+	json_object_set_new(root, "id", image_id);
+	json_object_set_new(root, "name", name);
+	json_object_set_new(root, "disk", disk);
+
 	cmd->type = OG_CMD_IMAGE_RESTORE;
 	cmd->method = OG_METHOD_POST;
-
-	/* TODO: json */
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = root;
 
 	return 0;
 }
@@ -3076,8 +3168,9 @@ static int og_cmd_legacy_run_schedule(const char *input, struct og_cmd *cmd)
 {
 	cmd->type = OG_CMD_RUN_SCHEDULE;
 	cmd->method = OG_METHOD_GET;
-
-	/* TODO: json */
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = NULL;
 
 	return 0;
 }
@@ -3095,8 +3188,6 @@ static int og_cmd_legacy(const char *input, struct og_cmd *cmd)
 
 	if (!strcmp(legacy_cmd, "Arrancar")) {
 		err = og_cmd_legacy_wol(input, cmd);
-	} else if (!strcmp(legacy_cmd, "Sondeo")) {
-		err = og_cmd_legacy_probe(input, cmd);
 	} else if (!strcmp(legacy_cmd, "EjecutarScript")) {
 		err = og_cmd_legacy_shell_run(input, cmd);
 	} else if (!strcmp(legacy_cmd, "IniciarSesion")) {
@@ -4376,8 +4467,6 @@ static int og_resp_shell_run(struct og_client *cli, json_t *data)
 	return 0;
 }
 
-#define OG_DB_INT_MAXLEN	11
-
 struct og_computer_legacy  {
 	char center[OG_DB_INT_MAXLEN + 1];
 	char id[OG_DB_INT_MAXLEN + 1];
@@ -4439,8 +4528,6 @@ static int og_resp_hardware(json_t *data, struct og_client *cli)
 
 	return 0;
 }
-
-#define OG_DB_SMALLINT_MAXLEN	6
 
 struct og_software_legacy {
 	char software[8192];
@@ -4631,20 +4718,6 @@ static int og_resp_setup(struct og_client *cli)
 
 	return og_send_request("refresh", OG_METHOD_GET, &params, NULL);
 }
-
-#define OG_DB_IMAGE_NAME_MAXLEN	50
-#define OG_DB_IP_MAXLEN		15
-#define OG_DB_INT8_MAXLEN	8
-
-struct og_image_legacy {
-	char software_id[OG_DB_INT_MAXLEN + 1];
-	char image_id[OG_DB_INT_MAXLEN + 1];
-	char name[OG_DB_IMAGE_NAME_MAXLEN + 1];
-	char repo[OG_DB_IP_MAXLEN + 1];
-	char part[OG_DB_SMALLINT_MAXLEN + 1];
-	char disk[OG_DB_SMALLINT_MAXLEN + 1];
-	char code[OG_DB_INT8_MAXLEN + 1];
-};
 
 static int og_resp_image_create(json_t *data, struct og_client *cli)
 {
@@ -5010,6 +5083,8 @@ static void og_agent_send_probe(struct og_client *cli)
 	name = json_string(computer.name);
 
 	object = json_object();
+	if (!object)
+		return;
 	json_object_set_new(object, "id", id);
 	json_object_set_new(object, "name", name);
 	json_object_set_new(object, "center", center);
