@@ -3036,9 +3036,10 @@ static int og_cmd_legacy_software(const char *input, struct og_cmd *cmd)
 }
 
 #define OG_DB_IMAGE_NAME_MAXLEN	50
-#define OG_DB_IP_MAXLEN		15
+#define OG_DB_FILESYSTEM_MAXLEN	16
 #define OG_DB_INT8_MAXLEN	8
 #define OG_DB_INT_MAXLEN	11
+#define OG_DB_IP_MAXLEN		15
 
 struct og_image_legacy {
 	char software_id[OG_DB_INT_MAXLEN + 1];
@@ -3048,6 +3049,14 @@ struct og_image_legacy {
 	char part[OG_DB_SMALLINT_MAXLEN + 1];
 	char disk[OG_DB_SMALLINT_MAXLEN + 1];
 	char code[OG_DB_INT8_MAXLEN + 1];
+};
+
+struct og_legacy_partition {
+	char partition[OG_DB_SMALLINT_MAXLEN + 1];
+	char code[OG_DB_INT8_MAXLEN + 1];
+	char size[OG_DB_INT_MAXLEN + 1];
+	char filesystem[OG_DB_FILESYSTEM_MAXLEN + 1];
+	char format[2]; /* Format is a boolean 0 or 1 => length is 2 */
 };
 
 static int og_cmd_legacy_image_create(const char *input, struct og_cmd *cmd)
@@ -3123,10 +3132,70 @@ static int og_cmd_legacy_image_restore(const char *input, struct og_cmd *cmd)
 
 static int og_cmd_legacy_setup(const char *input, struct og_cmd *cmd)
 {
-	cmd->type = OG_CMD_SETUP;
-	cmd->method = OG_METHOD_POST;
+	json_t *root, *disk, *cache, *cache_size, *partition_setup, *object;
+	struct og_legacy_partition part_cfg[OG_PARTITION_MAX] = {};
+	char cache_size_str [OG_DB_INT_MAXLEN + 1];
+	char disk_str [OG_DB_SMALLINT_MAXLEN + 1];
+	json_t *part, *code, *fs, *size, *format;
+	unsigned int partition_len = 0;
+	const char *in_ptr;
+	char cache_str[2];
 
-	/* TODO: json */
+	if (sscanf(input, "dsk=%s\rcfg=dis=%*[^*]*che=%[^*]*tch=%[^!]!",
+		   disk_str, cache_str, cache_size_str) != 3)
+		return -1;
+
+	in_ptr = strstr(input, "!") + 1;
+	while (in_ptr != NULL) {
+		if(sscanf(in_ptr,
+			  "par=%[^*]*cpt=%[^*]*sfi=%[^*]*tam=%[^*]*ope=%[^%%]%%",
+			  part_cfg[partition_len].partition,
+			  part_cfg[partition_len].code,
+			  part_cfg[partition_len].filesystem,
+			  part_cfg[partition_len].size,
+			  part_cfg[partition_len].format) != 5)
+			return -1;
+		in_ptr = strstr(in_ptr, "%") + 1;
+		partition_len++;
+	}
+
+	root = json_object();
+	if (!root)
+		return -1;
+
+	cache_size = json_string(cache_size_str);
+	cache = json_string(cache_str);
+	partition_setup = json_array();
+	disk = json_string(disk_str);
+
+	for (unsigned int i = 0; i < partition_len; ++i) {
+		object = json_object();
+		if (!object) {
+			json_decref(root);
+			return -1;
+		}
+
+		part = json_string(part_cfg[i].partition);
+		fs = json_string(part_cfg[i].filesystem);
+		format = json_string(part_cfg[i].format);
+		code = json_string(part_cfg[i].code);
+		size = json_string(part_cfg[i].size);
+
+		json_object_set_new(object, "partition", part);
+		json_object_set_new(object, "filesystem", fs);
+		json_object_set_new(object, "format", format);
+		json_object_set_new(object, "code", code);
+		json_object_set_new(object, "size", size);
+
+		json_array_append_new(partition_setup, object);
+	}
+
+	json_object_set_new(root, "partition_setup", partition_setup);
+	json_object_set_new(root, "cache_size", cache_size);
+	json_object_set_new(root, "cache", cache);
+	json_object_set_new(root, "disk", disk);
+
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_SETUP, root);
 
 	return 0;
 }
