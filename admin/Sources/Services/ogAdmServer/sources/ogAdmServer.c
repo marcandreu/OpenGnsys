@@ -3544,16 +3544,37 @@ static int og_dbi_queue_task(struct og_dbi *dbi, uint32_t task_id)
 
 void og_dbi_schedule_task(unsigned int task_id)
 {
+	struct og_msg_params params;
+	bool duplicated = false;
+	struct og_cmd *cmd;
 	struct og_dbi *dbi;
+	unsigned int i;
 
 	dbi = og_dbi_open(&dbi_config);
 	if (!dbi) {
 		syslog(LOG_ERR, "cannot open connection database (%s:%d)\n",
-			   __func__, __LINE__);
+		       __func__, __LINE__);
 		return;
 	}
 	og_dbi_queue_task(dbi, task_id);
 	og_dbi_close(dbi);
+
+	list_for_each_entry(cmd, &cmd_list, list) {
+		for (i = 0; i < params.ips_array_len; i++) {
+			if (!strncmp(cmd->ip, params.ips_array[i],
+				     OG_DB_IP_MAXLEN)) {
+				duplicated = true;
+				break;
+			}
+		}
+
+		if (!duplicated)
+			params.ips_array[params.ips_array_len++] = cmd->ip;
+		else
+			duplicated = false;
+	}
+
+	og_send_request("run/schedule", OG_METHOD_GET, &params, NULL);
 }
 
 static int og_cmd_task_post(json_t *element, struct og_msg_params *params)
