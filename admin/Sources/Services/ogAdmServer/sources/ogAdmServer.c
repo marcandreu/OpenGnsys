@@ -2925,6 +2925,16 @@ static void og_cmd_free(const struct og_cmd *cmd)
 	free((void *)cmd);
 }
 
+static void og_cmd_init(struct og_cmd *cmd, unsigned int method,
+			enum og_cmd_type type, json_t *root)
+{
+	cmd->type = type;
+	cmd->method = method;
+	cmd->params.ips_array[0] = strdup(cmd->ip);
+	cmd->params.ips_array_len = 1;
+	cmd->json = root;
+}
+
 static int og_cmd_legacy_wol(const char *input, struct og_cmd *cmd)
 {
 	char wol_type[2] = {};
@@ -2934,11 +2944,8 @@ static int og_cmd_legacy_wol(const char *input, struct og_cmd *cmd)
 		return -1;
 	}
 
-	cmd->type = OG_CMD_WOL;
-	cmd->method = OG_METHOD_NO_HTTP;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
+	og_cmd_init(cmd, OG_METHOD_NO_HTTP, OG_CMD_WOL, NULL);
 	cmd->params.mac_array[0] = strdup(cmd->mac);
-	cmd->params.ips_array_len = 1;
 	cmd->params.wol_type = strdup(wol_type);
 
 	return 0;
@@ -2957,11 +2964,7 @@ static int og_cmd_legacy_shell_run(const char *input, struct og_cmd *cmd)
 	json_object_set_new(root, "run", script);
 	json_object_set_new(root, "echo", echo);
 
-	cmd->type = OG_CMD_SHELL_RUN;
-	cmd->method = OG_METHOD_POST;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = root;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_SHELL_RUN, root);
 
 	return 0;
 }
@@ -2985,77 +2988,49 @@ static int og_cmd_legacy_session(const char *input, struct og_cmd *cmd)
 	json_object_set_new(root, "partition", partition);
 	json_object_set_new(root, "disk", disk);
 
-	cmd->method = OG_METHOD_POST;
-	cmd->type = OG_CMD_SESSION;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = root;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_SESSION, root);
 
 	return 0;
 }
 
 static int og_cmd_legacy_poweroff(const char *input, struct og_cmd *cmd)
 {
-	cmd->method = OG_METHOD_POST;
-	cmd->type = OG_CMD_POWEROFF;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_POWEROFF, NULL);
 
 	return 0;
 }
 
 static int og_cmd_legacy_refresh(const char *input, struct og_cmd *cmd)
 {
-	cmd->method = OG_METHOD_GET;
-	cmd->type = OG_CMD_REFRESH;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_GET, OG_CMD_REFRESH, NULL);
 
 	return 0;
 }
 
 static int og_cmd_legacy_reboot(const char *input, struct og_cmd *cmd)
 {
-	cmd->method = OG_METHOD_POST;
-	cmd->type = OG_CMD_REBOOT;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_REBOOT, NULL);
 
 	return 0;
 }
 
 static int og_cmd_legacy_stop(const char *input, struct og_cmd *cmd)
 {
-	cmd->method = OG_METHOD_POST;
-	cmd->type = OG_CMD_STOP;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_STOP, NULL);
 
 	return 0;
 }
 
 static int og_cmd_legacy_hardware(const char *input, struct og_cmd *cmd)
 {
-	cmd->method = OG_METHOD_GET;
-	cmd->type = OG_CMD_HARDWARE;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_GET, OG_CMD_HARDWARE, NULL);
 
 	return 0;
 }
 
 static int og_cmd_legacy_software(const char *input, struct og_cmd *cmd)
 {
-	cmd->method = OG_METHOD_GET;
-	cmd->type = OG_CMD_SOFTWARE;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_GET, OG_CMD_SOFTWARE, NULL);
 
 	return 0;
 }
@@ -3101,11 +3076,7 @@ static int og_cmd_legacy_image_create(const char *input, struct og_cmd *cmd)
 	json_object_set_new(root, "name", name);
 	json_object_set_new(root, "disk", disk);
 
-	cmd->type = OG_CMD_IMAGE_CREATE;
-	cmd->method = OG_METHOD_POST;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = root;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_IMAGE_CREATE, root);
 
 	return 0;
 }
@@ -3145,11 +3116,7 @@ static int og_cmd_legacy_image_restore(const char *input, struct og_cmd *cmd)
 	json_object_set_new(root, "name", name);
 	json_object_set_new(root, "disk", disk);
 
-	cmd->type = OG_CMD_IMAGE_RESTORE;
-	cmd->method = OG_METHOD_POST;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = root;
+	og_cmd_init(cmd, OG_METHOD_POST, OG_CMD_IMAGE_RESTORE, root);
 
 	return 0;
 }
@@ -3166,11 +3133,7 @@ static int og_cmd_legacy_setup(const char *input, struct og_cmd *cmd)
 
 static int og_cmd_legacy_run_schedule(const char *input, struct og_cmd *cmd)
 {
-	cmd->type = OG_CMD_RUN_SCHEDULE;
-	cmd->method = OG_METHOD_GET;
-	cmd->params.ips_array[0] = strdup(cmd->ip);
-	cmd->params.ips_array_len = 1;
-	cmd->json = NULL;
+	og_cmd_init(cmd, OG_METHOD_GET, OG_CMD_RUN_SCHEDULE, NULL);
 
 	return 0;
 }
