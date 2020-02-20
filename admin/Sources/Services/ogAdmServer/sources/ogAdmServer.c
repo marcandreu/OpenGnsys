@@ -1520,9 +1520,8 @@ struct og_computer {
 enum og_rest_method {
 	OG_METHOD_GET	= 0,
 	OG_METHOD_POST,
+	OG_METHOD_NO_HTTP
 };
-
-#define OG_METHOD_NO_HTTP 2
 
 static struct og_client *og_client_find(const char *ip)
 {
@@ -2925,7 +2924,7 @@ static void og_cmd_free(const struct og_cmd *cmd)
 	free((void *)cmd);
 }
 
-static void og_cmd_init(struct og_cmd *cmd, unsigned int method,
+static void og_cmd_init(struct og_cmd *cmd, enum og_rest_method method,
 			enum og_cmd_type type, json_t *root)
 {
 	cmd->type = type;
@@ -4016,6 +4015,8 @@ static int og_client_state_process_payload_rest(struct og_client *cli)
 		case OG_METHOD_GET:
 			err = og_cmd_get_clients(root, &params, buf_reply);
 			break;
+		default:
+			return og_client_bad_request(cli);
 		}
 	} else if (!strncmp(cmd, "wol", strlen("wol"))) {
 		if (method != OG_METHOD_POST)
