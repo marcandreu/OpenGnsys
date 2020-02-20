@@ -3146,7 +3146,7 @@ static int og_cmd_legacy_setup(const char *input, struct og_cmd *cmd)
 		return -1;
 
 	in_ptr = strstr(input, "!") + 1;
-	while (in_ptr != NULL) {
+	while (strlen(in_ptr) > 0) {
 		if(sscanf(in_ptr,
 			  "par=%[^*]*cpt=%[^*]*sfi=%[^*]*tam=%[^*]*ope=%[^%%]%%",
 			  part_cfg[partition_len].partition,
