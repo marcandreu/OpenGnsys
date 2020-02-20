@@ -7,12 +7,12 @@
 #include <ev.h>
 
 struct og_schedule_time {
-	unsigned int	years;
-	unsigned int	months;
-	unsigned int	days;
-	unsigned int	hours;
-	unsigned int	am_pm;
-	unsigned int	minutes;
+	uint32_t	years;
+	uint32_t	months;
+	uint32_t	days;
+	uint32_t	hours;
+	uint32_t	am_pm;
+	uint32_t	minutes;
 };
 
 struct og_schedule {
