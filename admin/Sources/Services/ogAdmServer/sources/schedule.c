@@ -49,7 +49,7 @@ static void og_parse_months(uint16_t months_mask, int months[])
 	}
 }
 
-static void og_parse_days(uint16_t days_mask, int days[])
+static void og_parse_days(uint32_t days_mask, int days[])
 {
 	int i, j = 0;
 

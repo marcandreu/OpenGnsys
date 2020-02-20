@@ -1635,7 +1635,7 @@ static int og_json_parse_string(json_t *element, const char **str)
 	return 0;
 }
 
-static int og_json_parse_uint(json_t *element, unsigned int *integer)
+static int og_json_parse_uint(json_t *element, uint32_t *integer)
 {
 	if (json_typeof(element) != JSON_INTEGER)
 		return -1;
