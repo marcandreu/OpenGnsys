@@ -144,6 +144,11 @@ enum og_client_state {
 
 static LIST_HEAD(client_list);
 
+enum og_client_status {
+	OG_CLIENT_STATUS_OGLIVE,
+	OG_CLIENT_STATUS_BUSY,
+};
+
 struct og_client {
 	struct list_head	list;
 	struct ev_io		io;
@@ -158,13 +163,24 @@ struct og_client {
 	bool			agent;
 	int			content_length;
 	char			auth_token[64];
-	const char		*status;
+	enum og_client_status	status;
 	char			last_cmd[OG_CMD_MAXLEN];
 };
 
 static inline int og_client_socket(const struct og_client *cli)
 {
 	return cli->io.fd;
+}
+
+static inline const char *og_client_status(const struct og_client *cli)
+{
+	switch (cli->status) {
+	case OG_CLIENT_STATUS_BUSY:
+		return "BSY";
+	case OG_CLIENT_STATUS_OGLIVE:
+	default:
+		return "OPG";
+	}
 }
 
 // ________________________________________________________________________________________________________
@@ -1927,7 +1943,7 @@ static int og_cmd_get_clients(json_t *element, struct og_msg_params *params,
 			return -1;
 		}
 		json_object_set_new(object, "addr", addr);
-		state = json_string(client->status);
+		state = json_string(og_client_status(client));
 		if (!state) {
 			json_decref(object);
 			json_decref(array);
@@ -4478,7 +4494,7 @@ static int og_dbi_get_computer_info(struct og_computer *computer,
 
 static int og_resp_probe(struct og_client *cli, json_t *data)
 {
-	bool status = false;
+	const char *status = NULL;
 	const char *key;
 	json_t *value;
 	int err = 0;
@@ -4488,15 +4504,18 @@ static int og_resp_probe(struct og_client *cli, json_t *data)
 
 	json_object_foreach(data, key, value) {
 		if (!strcmp(key, "status")) {
-			err = og_json_parse_string(value, &cli->status);
+			err = og_json_parse_string(value, &status);
 			if (err < 0)
 				return err;
-
-			status = true;
 		} else {
 			return -1;
 		}
 	}
+
+	if (!strcmp(status, "BSY"))
+		cli->status = OG_CLIENT_STATUS_BUSY;
+	else if (!strcmp(status, "OPG"))
+		cli->status = OG_CLIENT_STATUS_OGLIVE;
 
 	return status ? 0 : -1;
 }
