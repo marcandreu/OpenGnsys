@@ -1544,59 +1544,6 @@ static struct og_client *og_client_find(const char *ip)
 	return NULL;
 }
 
-static int og_send_request(const char *cmd,
-			   const enum og_rest_method method,
-			   const struct og_msg_params *params,
-			   const json_t *data)
-{
-	const char *content_type = "Content-Type: application/json";
-	char content [OG_MSG_REQUEST_MAXLEN - 700] = {};
-	char buf[OG_MSG_REQUEST_MAXLEN] = {};
-	unsigned int content_length;
-	char method_str[5] = {};
-	struct og_client *cli;
-	unsigned int i;
-	int client_sd;
-
-	if (method == OG_METHOD_GET)
-		snprintf(method_str, 5, "GET");
-	else if (method == OG_METHOD_POST)
-		snprintf(method_str, 5, "POST");
-	else
-		return -1;
-
-	if (!data)
-		content_length = 0;
-	else
-		content_length = json_dumpb(data, content,
-					    OG_MSG_REQUEST_MAXLEN - 700,
-					    JSON_COMPACT);
-
-	snprintf(buf, OG_MSG_REQUEST_MAXLEN,
-		 "%s /%s HTTP/1.1\r\nContent-Length: %d\r\n%s\r\n\r\n%s",
-		 method_str, cmd, content_length, content_type, content);
-
-	for (i = 0; i < params->ips_array_len; i++) {
-		cli = og_client_find(params->ips_array[i]);
-		if (!cli)
-			continue;
-
-		client_sd = cli->io.fd;
-		if (client_sd < 0) {
-			syslog(LOG_INFO, "Client %s not conected\n",
-			       params->ips_array[i]);
-			continue;
-		}
-
-		if (send(client_sd, buf, strlen(buf), 0) < 0)
-			continue;
-
-		strncpy(cli->last_cmd, cmd, OG_CMD_MAXLEN);
-	}
-
-	return 0;
-}
-
 static bool og_msg_params_validate(const struct og_msg_params *params,
 				   const uint64_t flags)
 {
@@ -1824,6 +1771,95 @@ static int og_json_parse_time_params(json_t *element,
 	return err;
 }
 
+enum og_cmd_type {
+	OG_CMD_WOL,
+	OG_CMD_PROBE,
+	OG_CMD_SHELL_RUN,
+	OG_CMD_SESSION,
+	OG_CMD_POWEROFF,
+	OG_CMD_REFRESH,
+	OG_CMD_REBOOT,
+	OG_CMD_STOP,
+	OG_CMD_HARDWARE,
+	OG_CMD_SOFTWARE,
+	OG_CMD_IMAGE_CREATE,
+	OG_CMD_IMAGE_RESTORE,
+	OG_CMD_SETUP,
+	OG_CMD_RUN_SCHEDULE,
+	OG_CMD_MAX
+};
+
+static const char *og_cmd_to_uri[OG_CMD_MAX] = {
+	[OG_CMD_WOL]		= "wol",
+	[OG_CMD_PROBE]		= "probe",
+	[OG_CMD_SHELL_RUN]	= "shell/run",
+	[OG_CMD_SESSION]	= "session",
+	[OG_CMD_POWEROFF]	= "poweroff",
+	[OG_CMD_REFRESH]	= "refresh",
+	[OG_CMD_REBOOT]		= "reboot",
+	[OG_CMD_STOP]		= "stop",
+	[OG_CMD_HARDWARE]	= "hardware",
+	[OG_CMD_SOFTWARE]	= "software",
+	[OG_CMD_IMAGE_CREATE]	= "image/create",
+	[OG_CMD_IMAGE_RESTORE]	= "image/restore",
+	[OG_CMD_SETUP]		= "setup",
+	[OG_CMD_RUN_SCHEDULE]	= "run/schedule",
+};
+
+static int og_send_request(enum og_rest_method method, enum og_cmd_type type,
+			   const struct og_msg_params *params,
+			   const json_t *data)
+{
+	const char *content_type = "Content-Type: application/json";
+	char content [OG_MSG_REQUEST_MAXLEN - 700] = {};
+	char buf[OG_MSG_REQUEST_MAXLEN] = {};
+	unsigned int content_length;
+	char method_str[5] = {};
+	struct og_client *cli;
+	const char *uri;
+	unsigned int i;
+	int client_sd;
+
+	if (method == OG_METHOD_GET)
+		snprintf(method_str, 5, "GET");
+	else if (method == OG_METHOD_POST)
+		snprintf(method_str, 5, "POST");
+	else
+		return -1;
+
+	if (!data)
+		content_length = 0;
+	else
+		content_length = json_dumpb(data, content,
+					    OG_MSG_REQUEST_MAXLEN - 700,
+					    JSON_COMPACT);
+
+	uri = og_cmd_to_uri[type];
+	snprintf(buf, OG_MSG_REQUEST_MAXLEN,
+		 "%s /%s HTTP/1.1\r\nContent-Length: %d\r\n%s\r\n\r\n%s",
+		 method_str, uri, content_length, content_type, content);
+
+	for (i = 0; i < params->ips_array_len; i++) {
+		cli = og_client_find(params->ips_array[i]);
+		if (!cli)
+			continue;
+
+		client_sd = cli->io.fd;
+		if (client_sd < 0) {
+			syslog(LOG_INFO, "Client %s not conected\n",
+			       params->ips_array[i]);
+			continue;
+		}
+
+		if (send(client_sd, buf, strlen(buf), 0) < 0)
+			continue;
+
+		strncpy(cli->last_cmd, uri, OG_CMD_MAXLEN);
+	}
+
+	return 0;
+}
+
 static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
 {
 	const char *key;
@@ -1844,7 +1880,7 @@ static int og_cmd_post_clients(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("probe", OG_METHOD_POST, params, NULL);
+	return og_send_request(OG_METHOD_POST, OG_CMD_PROBE, params, NULL);
 }
 
 struct og_buffer {
@@ -2065,7 +2101,7 @@ static int og_cmd_run_post(json_t *element, struct og_msg_params *params)
 	clients = json_copy(element);
 	json_object_del(clients, "clients");
 
-	err = og_send_request("shell/run", OG_METHOD_POST, params, clients);
+	err = og_send_request(OG_METHOD_POST, OG_CMD_SHELL_RUN, params, clients);
 	if (err < 0)
 		return err;
 
@@ -2196,7 +2232,7 @@ static int og_cmd_session(json_t *element, struct og_msg_params *params)
 	clients = json_copy(element);
 	json_object_del(clients, "clients");
 
-	return og_send_request("session", OG_METHOD_POST, params, clients);
+	return og_send_request(OG_METHOD_POST, OG_CMD_SESSION, params, clients);
 }
 
 static int og_cmd_poweroff(json_t *element, struct og_msg_params *params)
@@ -2219,7 +2255,7 @@ static int og_cmd_poweroff(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("poweroff", OG_METHOD_POST, params, NULL);
+	return og_send_request(OG_METHOD_POST, OG_CMD_POWEROFF, params, NULL);
 }
 
 static int og_cmd_refresh(json_t *element, struct og_msg_params *params)
@@ -2242,7 +2278,7 @@ static int og_cmd_refresh(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("refresh", OG_METHOD_GET, params, NULL);
+	return og_send_request(OG_METHOD_GET, OG_CMD_REFRESH, params, NULL);
 }
 
 static int og_cmd_reboot(json_t *element, struct og_msg_params *params)
@@ -2265,7 +2301,7 @@ static int og_cmd_reboot(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("reboot", OG_METHOD_POST, params, NULL);
+	return og_send_request(OG_METHOD_POST, OG_CMD_REBOOT, params, NULL);
 }
 
 static int og_cmd_stop(json_t *element, struct og_msg_params *params)
@@ -2288,7 +2324,7 @@ static int og_cmd_stop(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("stop", OG_METHOD_POST, params, NULL);
+	return og_send_request(OG_METHOD_POST, OG_CMD_STOP, params, NULL);
 }
 
 static int og_cmd_hardware(json_t *element, struct og_msg_params *params)
@@ -2311,7 +2347,7 @@ static int og_cmd_hardware(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("hardware", OG_METHOD_GET, params, NULL);
+	return og_send_request(OG_METHOD_GET, OG_CMD_HARDWARE, params, NULL);
 }
 
 static int og_cmd_software(json_t *element, struct og_msg_params *params)
@@ -2347,7 +2383,7 @@ static int og_cmd_software(json_t *element, struct og_msg_params *params)
 	clients = json_copy(element);
 	json_object_del(clients, "clients");
 
-	return og_send_request("software", OG_METHOD_POST, params, clients);
+	return og_send_request(OG_METHOD_POST, OG_CMD_SOFTWARE, params, clients);
 }
 
 static int og_cmd_create_image(json_t *element, struct og_msg_params *params)
@@ -2398,7 +2434,8 @@ static int og_cmd_create_image(json_t *element, struct og_msg_params *params)
 	clients = json_copy(element);
 	json_object_del(clients, "clients");
 
-	return og_send_request("image/create", OG_METHOD_POST, params, clients);
+	return og_send_request(OG_METHOD_POST, OG_CMD_IMAGE_CREATE, params,
+			       clients);
 }
 
 static int og_cmd_restore_image(json_t *element, struct og_msg_params *params)
@@ -2453,7 +2490,8 @@ static int og_cmd_restore_image(json_t *element, struct og_msg_params *params)
 	clients = json_copy(element);
 	json_object_del(clients, "clients");
 
-	return og_send_request("image/restore", OG_METHOD_POST, params, clients);
+	return og_send_request(OG_METHOD_POST, OG_CMD_IMAGE_RESTORE, params,
+			       clients);
 }
 
 static int og_cmd_setup(json_t *element, struct og_msg_params *params)
@@ -2498,7 +2536,7 @@ static int og_cmd_setup(json_t *element, struct og_msg_params *params)
 	clients = json_copy(element);
 	json_object_del(clients, "clients");
 
-	return og_send_request("setup", OG_METHOD_POST, params, clients);
+	return og_send_request(OG_METHOD_POST, OG_CMD_SETUP, params, clients);
 }
 
 static int og_cmd_run_schedule(json_t *element, struct og_msg_params *params)
@@ -2518,7 +2556,8 @@ static int og_cmd_run_schedule(json_t *element, struct og_msg_params *params)
 	if (!og_msg_params_validate(params, OG_REST_PARAM_ADDR))
 		return -1;
 
-	return og_send_request("run/schedule", OG_METHOD_GET, params, NULL);
+	return og_send_request(OG_METHOD_GET, OG_CMD_RUN_SCHEDULE, params,
+			       NULL);
 }
 
 static int og_cmd_create_basic_image(json_t *element, struct og_msg_params *params)
@@ -2858,24 +2897,6 @@ static int og_cmd_restore_incremental_image(json_t *element, struct og_msg_param
 
 	return 0;
 }
-
-enum og_cmd_type {
-	OG_CMD_WOL,
-	OG_CMD_PROBE,
-	OG_CMD_SHELL_RUN,
-	OG_CMD_SESSION,
-	OG_CMD_POWEROFF,
-	OG_CMD_REFRESH,
-	OG_CMD_REBOOT,
-	OG_CMD_STOP,
-	OG_CMD_HARDWARE,
-	OG_CMD_SOFTWARE,
-	OG_CMD_IMAGE_CREATE,
-	OG_CMD_IMAGE_RESTORE,
-	OG_CMD_SETUP,
-	OG_CMD_RUN_SCHEDULE,
-	OG_CMD_MAX
-};
 
 struct og_cmd {
 	struct list_head	list;
@@ -3573,7 +3594,7 @@ void og_dbi_schedule_task(unsigned int task_id)
 			duplicated = false;
 	}
 
-	og_send_request("run/schedule", OG_METHOD_GET, &params, NULL);
+	og_send_request(OG_METHOD_GET, OG_CMD_RUN_SCHEDULE, &params, NULL);
 }
 
 static int og_cmd_task_post(json_t *element, struct og_msg_params *params)
@@ -3613,7 +3634,8 @@ static int og_cmd_task_post(json_t *element, struct og_msg_params *params)
 	list_for_each_entry(cmd, &cmd_list, list)
 		params->ips_array[params->ips_array_len++] = cmd->ip;
 
-	return og_send_request("run/schedule", OG_METHOD_GET, params, NULL);
+	return og_send_request(OG_METHOD_GET, OG_CMD_RUN_SCHEDULE, params,
+			       NULL);
 }
 
 static int og_dbi_schedule_get(void)
@@ -4770,7 +4792,7 @@ static int og_resp_setup(struct og_client *cli)
 	params.ips_array[0] = inet_ntoa(cli->addr.sin_addr);
 	params.ips_array_len = 1;
 
-	return og_send_request("refresh", OG_METHOD_GET, &params, NULL);
+	return og_send_request(OG_METHOD_GET, OG_CMD_REFRESH, &params, NULL);
 }
 
 static int og_resp_image_create(json_t *data, struct og_client *cli)
@@ -5008,34 +5030,15 @@ static int og_agent_state_process_response(struct og_client *cli)
 	return err;
 }
 
-static const char *og_cmd_to_uri[OG_CMD_MAX] = {
-	[OG_CMD_WOL]		= "wol",
-	[OG_CMD_PROBE]		= "probe",
-	[OG_CMD_SHELL_RUN]	= "shell/run",
-	[OG_CMD_SESSION]	= "session",
-	[OG_CMD_POWEROFF]	= "poweroff",
-	[OG_CMD_REFRESH]	= "refresh",
-	[OG_CMD_REBOOT]		= "reboot",
-	[OG_CMD_STOP]		= "stop",
-	[OG_CMD_HARDWARE]	= "hardware",
-	[OG_CMD_SOFTWARE]	= "software",
-	[OG_CMD_IMAGE_CREATE]	= "image/create",
-	[OG_CMD_IMAGE_RESTORE]	= "image/restore",
-	[OG_CMD_SETUP]		= "setup",
-	[OG_CMD_RUN_SCHEDULE]	= "run/schedule",
-};
-
 static void og_agent_deliver_pending_cmd(struct og_client *cli)
 {
 	const struct og_cmd *cmd;
-	const char *uri;
 
 	cmd = og_cmd_find(inet_ntoa(cli->addr.sin_addr));
 	if (!cmd)
 		return;
 
-	uri = og_cmd_to_uri[cmd->type];
-        og_send_request(uri, cmd->method, &cmd->params, cmd->json);
+	og_send_request(cmd->method, cmd->type, &cmd->params, cmd->json);
 
 	og_cmd_free(cmd);
 }
@@ -5144,7 +5147,7 @@ static void og_agent_send_probe(struct og_client *cli)
 	json_object_set_new(object, "center", center);
 	json_object_set_new(object, "room", room);
 
-	err = og_send_request("probe", OG_METHOD_POST, &params, object);
+	err = og_send_request(OG_METHOD_POST, OG_CMD_PROBE, &params, object);
 	if (err < 0) {
 		syslog(LOG_ERR, "Can't send probe to: %s\n",
 		       params.ips_array[0]);
