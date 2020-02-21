@@ -143,6 +143,7 @@ enum og_client_state {
 #define OG_AGENT_CLIENT_TIMEOUT	30
 
 enum og_cmd_type {
+	OG_CMD_UNSPEC,
 	OG_CMD_WOL,
 	OG_CMD_PROBE,
 	OG_CMD_SHELL_RUN,
@@ -5056,6 +5057,8 @@ static int og_agent_state_process_response(struct og_client *cli)
 		err = -1;
 		break;
 	}
+
+	cli->last_cmd = OG_CMD_UNSPEC;
 
 	return err;
 }
