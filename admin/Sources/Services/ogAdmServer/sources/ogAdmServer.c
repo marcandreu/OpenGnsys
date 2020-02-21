@@ -142,6 +142,24 @@ enum og_client_state {
 /* Agent client operation might take longer, shut down after 30 seconds. */
 #define OG_AGENT_CLIENT_TIMEOUT	30
 
+enum og_cmd_type {
+	OG_CMD_WOL,
+	OG_CMD_PROBE,
+	OG_CMD_SHELL_RUN,
+	OG_CMD_SESSION,
+	OG_CMD_POWEROFF,
+	OG_CMD_REFRESH,
+	OG_CMD_REBOOT,
+	OG_CMD_STOP,
+	OG_CMD_HARDWARE,
+	OG_CMD_SOFTWARE,
+	OG_CMD_IMAGE_CREATE,
+	OG_CMD_IMAGE_RESTORE,
+	OG_CMD_SETUP,
+	OG_CMD_RUN_SCHEDULE,
+	OG_CMD_MAX
+};
+
 static LIST_HEAD(client_list);
 
 enum og_client_status {
@@ -164,7 +182,7 @@ struct og_client {
 	int			content_length;
 	char			auth_token[64];
 	enum og_client_status	status;
-	char			last_cmd[OG_CMD_MAXLEN];
+	enum og_cmd_type	last_cmd;
 };
 
 static inline int og_client_socket(const struct og_client *cli)
@@ -1787,24 +1805,6 @@ static int og_json_parse_time_params(json_t *element,
 	return err;
 }
 
-enum og_cmd_type {
-	OG_CMD_WOL,
-	OG_CMD_PROBE,
-	OG_CMD_SHELL_RUN,
-	OG_CMD_SESSION,
-	OG_CMD_POWEROFF,
-	OG_CMD_REFRESH,
-	OG_CMD_REBOOT,
-	OG_CMD_STOP,
-	OG_CMD_HARDWARE,
-	OG_CMD_SOFTWARE,
-	OG_CMD_IMAGE_CREATE,
-	OG_CMD_IMAGE_RESTORE,
-	OG_CMD_SETUP,
-	OG_CMD_RUN_SCHEDULE,
-	OG_CMD_MAX
-};
-
 static const char *og_cmd_to_uri[OG_CMD_MAX] = {
 	[OG_CMD_WOL]		= "wol",
 	[OG_CMD_PROBE]		= "probe",
@@ -1870,7 +1870,7 @@ static int og_send_request(enum og_rest_method method, enum og_cmd_type type,
 		if (send(client_sd, buf, strlen(buf), 0) < 0)
 			continue;
 
-		strncpy(cli->last_cmd, uri, OG_CMD_MAXLEN);
+		cli->last_cmd = type;
 	}
 
 	return 0;
@@ -5027,24 +5027,35 @@ static int og_agent_state_process_response(struct og_client *cli)
 		return -1;
 	}
 
-	if (!strncmp(cli->last_cmd, "probe", strlen("probe")))
+	switch (cli->last_cmd) {
+	case OG_CMD_PROBE:
 		err = og_resp_probe(cli, root);
-	else if (!strncmp(cli->last_cmd, "shell/run", strlen("shell/run")))
+		break;
+	case OG_CMD_SHELL_RUN:
 		err = og_resp_shell_run(cli, root);
-	else if (!strncmp(cli->last_cmd, "hardware", strlen("hardware")))
+		break;
+	case OG_CMD_HARDWARE:
 		err = og_resp_hardware(root, cli);
-	else if (!strncmp(cli->last_cmd, "software", strlen("software")))
+		break;
+	case OG_CMD_SOFTWARE:
 		err = og_resp_software(root, cli);
-	else if (!strncmp(cli->last_cmd, "refresh", strlen("refresh")))
+		break;
+	case OG_CMD_REFRESH:
 		err = og_resp_refresh(root, cli);
-	else if (!strncmp(cli->last_cmd, "setup", strlen("setup")))
+		break;
+	case OG_CMD_SETUP:
 		err = og_resp_setup(cli);
-	else if (!strncmp(cli->last_cmd, "image/create", strlen("image/create")))
+		break;
+	case OG_CMD_IMAGE_CREATE:
 		err = og_resp_image_create(root, cli);
-	else if (!strncmp(cli->last_cmd, "image/restore", strlen("image/restore")))
+		break;
+	case OG_CMD_IMAGE_RESTORE:
 		err = og_resp_image_restore(root, cli);
-	else
+		break;
+	default:
 		err = -1;
+		break;
+	}
 
 	return err;
 }
