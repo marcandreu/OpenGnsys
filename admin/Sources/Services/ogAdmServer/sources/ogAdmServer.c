@@ -1823,6 +1823,22 @@ static const char *og_cmd_to_uri[OG_CMD_MAX] = {
 	[OG_CMD_RUN_SCHEDULE]	= "run/schedule",
 };
 
+static bool og_client_is_busy(const struct og_client *cli,
+			      enum og_cmd_type type)
+{
+	switch (type) {
+	case OG_CMD_REBOOT:
+	case OG_CMD_POWEROFF:
+		break;
+	default:
+		if (cli->last_cmd != OG_CMD_UNSPEC)
+			return true;
+		break;
+	}
+
+	return false;
+}
+
 static int og_send_request(enum og_rest_method method, enum og_cmd_type type,
 			   const struct og_msg_params *params,
 			   const json_t *data)
@@ -1859,6 +1875,9 @@ static int og_send_request(enum og_rest_method method, enum og_cmd_type type,
 	for (i = 0; i < params->ips_array_len; i++) {
 		cli = og_client_find(params->ips_array[i]);
 		if (!cli)
+			continue;
+
+		if (og_client_is_busy(cli, type))
 			continue;
 
 		client_sd = cli->io.fd;
