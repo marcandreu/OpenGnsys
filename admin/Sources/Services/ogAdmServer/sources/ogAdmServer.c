@@ -193,12 +193,16 @@ static inline int og_client_socket(const struct og_client *cli)
 
 static inline const char *og_client_status(const struct og_client *cli)
 {
+	if (cli->last_cmd != OG_CMD_UNSPEC)
+		return "BSY";
+
 	switch (cli->status) {
 	case OG_CLIENT_STATUS_BUSY:
 		return "BSY";
 	case OG_CLIENT_STATUS_OGLIVE:
-	default:
 		return "OPG";
+	default:
+		return "OFF";
 	}
 }
 
@@ -1829,6 +1833,7 @@ static bool og_client_is_busy(const struct og_client *cli,
 	switch (type) {
 	case OG_CMD_REBOOT:
 	case OG_CMD_POWEROFF:
+	case OG_CMD_STOP:
 		break;
 	default:
 		if (cli->last_cmd != OG_CMD_UNSPEC)
