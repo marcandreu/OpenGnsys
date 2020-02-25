@@ -4824,16 +4824,6 @@ static int og_resp_refresh(json_t *data, struct og_client *cli)
 	return 0;
 }
 
-static int og_resp_setup(struct og_client *cli)
-{
-	struct og_msg_params params;
-
-	params.ips_array[0] = inet_ntoa(cli->addr.sin_addr);
-	params.ips_array_len = 1;
-
-	return og_send_request(OG_METHOD_GET, OG_CMD_REFRESH, &params, NULL);
-}
-
 static int og_resp_image_create(json_t *data, struct og_client *cli)
 {
 	struct og_software_legacy soft_legacy;
@@ -5064,7 +5054,7 @@ static int og_agent_state_process_response(struct og_client *cli)
 		err = og_resp_refresh(root, cli);
 		break;
 	case OG_CMD_SETUP:
-		err = og_resp_setup(cli);
+		err = og_resp_refresh(root, cli);
 		break;
 	case OG_CMD_IMAGE_CREATE:
 		err = og_resp_image_create(root, cli);
