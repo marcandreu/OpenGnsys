@@ -319,12 +319,6 @@ function ContextualXMLCentros(){
 	$layerXML.=' textoitem='.$TbMsg[4];
 	$layerXML.='></ITEM>';
 
-	$layerXML.='<ITEM';
-	$layerXML.=' alpulsar="purgar_ordenadores()"';
-	$layerXML.=' imgitem="../images/iconos/purgar.gif"';
-	$layerXML.=' textoitem='.$TbMsg[2];
-	$layerXML.='></ITEM>';
-
 	$layerXML.='<SEPARADOR>';
 	$layerXML.='</SEPARADOR>';
 	
@@ -411,12 +405,6 @@ function ContextualXMLGruposAulas(){
 	$layerXML.=' alpulsar="actualizar_ordenadores()"';
 	$layerXML.=' imgitem="../images/iconos/actualizar.gif"';
 	$layerXML.=' textoitem='.$TbMsg[4];
-	$layerXML.='></ITEM>';
-
-	$layerXML.='<ITEM';
-	$layerXML.=' alpulsar="purgar_ordenadores()"';
-	$layerXML.=' imgitem="../images/iconos/purgar.gif"';
-	$layerXML.=' textoitem='.$TbMsg[2];
 	$layerXML.='></ITEM>';
 
 	$layerXML.='<SEPARADOR>';
@@ -548,12 +536,6 @@ function ContextualXMLAulas(){
 	$layerXML.=' alpulsar="actualizar_ordenadores()"';
 	$layerXML.=' imgitem="../images/iconos/actualizar.gif"';
 	$layerXML.=' textoitem='.$TbMsg[4];
-	$layerXML.='></ITEM>';
-
-	$layerXML.='<ITEM';
-	$layerXML.=' alpulsar="purgar_ordenadores()"';
-	$layerXML.=' imgitem="../images/iconos/purgar.gif"';
-	$layerXML.=' textoitem='.$TbMsg[2];
 	$layerXML.='></ITEM>';
 
 	$layerXML.='<SEPARADOR>';
@@ -744,12 +726,6 @@ function ContextualXMLGruposOrdenadores(){
 	$layerXML.=' textoitem='.$TbMsg[4];
 	$layerXML.='></ITEM>';
 
-	$layerXML.='<ITEM';
-	$layerXML.=' alpulsar="purgar_ordenadores()"';
-	$layerXML.=' imgitem="../images/iconos/purgar.gif"';
-	$layerXML.=' textoitem='.$TbMsg[2];
-	$layerXML.='></ITEM>';
-
 	$layerXML.='<SEPARADOR>';
 	$layerXML.='</SEPARADOR>';
 	
@@ -869,12 +845,6 @@ function ContextualXMLOrdenadores(){
 	$layerXML.=' alpulsar="actualizar_ordenadores()"';
 	$layerXML.=' imgitem="../images/iconos/actualizar.gif"';
 	$layerXML.=' textoitem='.$TbMsg[4];
-	$layerXML.='></ITEM>';
-
-	$layerXML.='<ITEM';
-	$layerXML.=' alpulsar="purgar_ordenadores()"';
-	$layerXML.=' imgitem="../images/iconos/purgar.gif"';
-	$layerXML.=' textoitem='.$TbMsg[2];
 	$layerXML.='></ITEM>';
 
 	$layerXML.='<SEPARADOR>';
