@@ -5030,8 +5030,10 @@ static int og_agent_state_process_response(struct og_client *cli)
 	if (strncmp(cli->buf, "HTTP/1.0 200 OK", strlen("HTTP/1.0 200 OK")))
 		return -1;
 
-	if (!cli->content_length)
+	if (!cli->content_length) {
+		cli->last_cmd = OG_CMD_UNSPEC;
 		return 0;
+	}
 
 	body = strstr(cli->buf, "\r\n\r\n") + 4;
 
