@@ -3764,13 +3764,17 @@ static int og_dbi_schedule_update(struct og_dbi *dbi,
 	uint8_t type = 3;
 
 	result = dbi_conn_queryf(dbi->conn,
-				 "UPDATE programaciones SET tipoaccion=%s, "
-				 " identificador='%s', nombrebloque=%d, annos=%d, meses=%d,"
-				 " diario=%d, horas=%d, ampm=%d, minutos=%d) WHERE idprogramacion=%d",
-				 type, params->task_id, params->name, params->time.years,
-				 params->time.months, params->time.days,
-				 params->time.hours, params->time.am_pm,
-				 params->time.minutes, params->id);
+				 "UPDATE programaciones SET tipoaccion=%d, "
+				 "identificador='%s', nombrebloque='%s', "
+				 "annos=%d, meses=%d, "
+				 "diario=%d, horas=%d, ampm=%d, minutos=%d "
+				 "WHERE idprogramacion='%s'",
+				 type, params->task_id, params->name,
+				 params->time.years, params->time.months,
+				 params->time.days, params->time.hours,
+				 params->time.am_pm, params->time.minutes,
+				 params->id);
+
 	if (!result) {
 		dbi_conn_error(dbi->conn, &msglog);
 		syslog(LOG_ERR, "failed to query database (%s:%d) %s\n",
@@ -3832,6 +3836,7 @@ static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_NAME |
 					    OG_REST_PARAM_TIME_YEARS |
 					    OG_REST_PARAM_TIME_MONTHS |
+					    OG_REST_PARAM_TIME_DAYS |
 					    OG_REST_PARAM_TIME_HOURS |
 					    OG_REST_PARAM_TIME_MINUTES |
 					    OG_REST_PARAM_TIME_AM_PM))
@@ -3888,6 +3893,7 @@ static int og_cmd_schedule_update(json_t *element, struct og_msg_params *params)
 					    OG_REST_PARAM_NAME |
 					    OG_REST_PARAM_TIME_YEARS |
 					    OG_REST_PARAM_TIME_MONTHS |
+					    OG_REST_PARAM_TIME_DAYS |
 					    OG_REST_PARAM_TIME_HOURS |
 					    OG_REST_PARAM_TIME_MINUTES |
 					    OG_REST_PARAM_TIME_AM_PM))
