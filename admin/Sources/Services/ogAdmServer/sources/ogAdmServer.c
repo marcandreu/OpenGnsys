@@ -3712,6 +3712,8 @@ static int og_dbi_schedule_get(void)
 		task_id = dbi_result_get_uint(result, "identificador");
 		time.years = dbi_result_get_uint(result, "annos");
 		time.months = dbi_result_get_uint(result, "meses");
+		time.weeks = dbi_result_get_uint(result, "semanas");
+		time.week_days = dbi_result_get_uint(result, "dias");
 		time.days = dbi_result_get_uint(result, "diario");
 		time.hours = dbi_result_get_uint(result, "horas");
 		time.am_pm = dbi_result_get_uint(result, "ampm");
