@@ -294,18 +294,45 @@ static void og_schedule_create_weeks(int month, int year,
 	}
 }
 
+static void og_schedule_create_days(int month, int year,
+				    int *hours, int minutes, int *days,
+				    uint32_t task_id, uint32_t schedule_id)
+{
+	struct og_schedule *schedule;
+	struct tm tm;
+	int k, l;
+
+	for (k = 0; days[k] != 0 && k < 31; k++) {
+		for (l = 0; hours[l] != 0 && l < 31; l++) {
+			schedule = (struct og_schedule *)
+				calloc(1, sizeof(struct og_schedule));
+			if (!schedule)
+				return;
+
+			memset(&tm, 0, sizeof(tm));
+			tm.tm_year = year;
+			tm.tm_mon = month;
+			tm.tm_mday = days[k];
+			tm.tm_hour = hours[l] - 1;
+			tm.tm_min = minutes;
+
+			schedule->seconds = mktime(&tm);
+			schedule->task_id = task_id;
+			schedule->schedule_id = schedule_id;
+			og_schedule_add(schedule);
+		}
+	}
+}
+
 void og_schedule_create(unsigned int schedule_id, unsigned int task_id,
 			struct og_schedule_time *time)
 {
-	struct og_schedule *schedule;
+	int year, month, minutes;
 	int months[12] = {};
 	int years[12] = {};
 	int hours[12] = {};
 	int days[31] = {};
-	struct tm tm = {};
-	int i, j, k, l = 0;
-	int year, month;
-	int minutes;
+	int i, j;
 
 	og_parse_years(time->years, years);
 	og_parse_months(time->months, months);
@@ -332,32 +359,12 @@ void og_schedule_create(unsigned int schedule_id, unsigned int task_id,
 							 task_id,
 							 schedule_id);
 
-			memset(&tm, 0, sizeof(tm));
-			tm.tm_year = years[i];
-			tm.tm_mon = months[j] - 1;
-
-			if (time->days) {
-				for (k = 0; days[k] != 0 && k < 31; k++) {
-					for (l = 0; hours[l] != 0 && l < 31; l++) {
-						schedule = (struct og_schedule *)
-							calloc(1, sizeof(struct og_schedule));
-						if (!schedule)
-							return;
-
-						memset(&tm, 0, sizeof(tm));
-						tm.tm_year = years[i];
-						tm.tm_mon = months[j] - 1;
-						tm.tm_mday = days[k];
-						tm.tm_hour = hours[l] - 1;
-						tm.tm_min = minutes;
-
-						schedule->seconds = mktime(&tm);
-						schedule->task_id = task_id;
-						schedule->schedule_id = schedule_id;
-						og_schedule_add(schedule);
-					}
-				}
-			}
+			if (time->days)
+				og_schedule_create_days(month, year,
+							hours, minutes,
+							days,
+							task_id,
+							schedule_id);
 		}
 	}
 
