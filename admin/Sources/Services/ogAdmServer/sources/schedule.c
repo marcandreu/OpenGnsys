@@ -128,13 +128,9 @@ static void get_last_week(struct tm *tm, int *days, int *j)
 		days[(*j)++] = tm->tm_mday;
 
 
-		syslog(LOG_ERR, "TM_WDAY: %d", tm->tm_wday);//XXX
-		syslog(LOG_ERR, "TM_MDAY: %d", tm->tm_mday);//XXX
 		/* Last day of this week? */
-		if (tm->tm_wday == 1) {
-			syslog(LOG_ERR, "break week");//XXX
+		if (tm->tm_wday == 1)
 			break;
-		}
 
 		tm->tm_mday--;
 	}
