@@ -29,7 +29,7 @@
 '''
 @author: Adolfo Gómez, dkmaster at dkmon dot com
 '''
-from __future__ import unicode_literals
+
 
 import win32service
 import win32serviceutil
@@ -43,8 +43,8 @@ try:
         hs = win32serviceutil.SmartOpenService(hscm, svc_name, win32service.SERVICE_ALL_ACCESS)
         service_failure_actions = {
             'ResetPeriod': 864000,  # Time in ms after which to reset the failure count to zero.
-            'RebootMsg': u'',  # Not using reboot option
-            'Command': u'',  # Not using run-command option
+            'RebootMsg': '',  # Not using reboot option
+            'Command': '',  # Not using run-command option
             'Actions': [
                 (win32service.SC_ACTION_RESTART, 5000),  # action, delay in ms
                 (win32service.SC_ACTION_RESTART, 5000)
