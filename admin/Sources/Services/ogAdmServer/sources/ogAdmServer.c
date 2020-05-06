@@ -3971,7 +3971,7 @@ static int og_cmd_schedule_create(json_t *element, struct og_msg_params *params)
 		} else if (!strcmp(key, "name")) {
 			err = og_json_parse_string(value, &params->name);
 			params->flags |= OG_REST_PARAM_NAME;
-		} else if (!strcmp(key, "time_params"))
+		} else if (!strcmp(key, "when"))
 			err = og_json_parse_time_params(value, params);
 
 		if (err < 0)
@@ -4029,7 +4029,7 @@ static int og_cmd_schedule_update(json_t *element, struct og_msg_params *params)
 		} else if (!strcmp(key, "name")) {
 			err = og_json_parse_string(value, &params->name);
 			params->flags |= OG_REST_PARAM_NAME;
-		} else if (!strcmp(key, "time_params"))
+		} else if (!strcmp(key, "when"))
 			err = og_json_parse_time_params(value, params);
 
 		if (err < 0)
