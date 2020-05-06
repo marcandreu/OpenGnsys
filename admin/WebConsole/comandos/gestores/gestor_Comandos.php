@@ -38,53 +38,84 @@ define('OG_CMD_ID_SENDMESSAGE', 16);
 
 function run_command($idcomando, $cadenaip, $cadenamac, $atributos) {
 	global $cmd;
+	$ret = "";
+
 	switch ($idcomando) {
 		case OG_CMD_ID_WAKEUP:
 			include("wakeonlan_repo.php");
 			break;
 		case OG_CMD_ID_SETUP:
-			setup($cadenaip, $atributos);
+			$ret = setup($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_SESSION:
-			session($cadenaip, $atributos);
+			$ret = session($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_CREATE_BASIC_IMAGE:
-			create_basic_image($cadenaip, $atributos);
+			$ret = create_basic_image($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_CREATE_INCREMENTAL_IMAGE:
-			create_incremental_image($cadenaip, $atributos);
+			$ret = create_incremental_image($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_RESTORE_BASIC_IMAGE:
-			restore_basic_image($cadenaip, $atributos);
+			$ret = restore_basic_image($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_RESTORE_INCREMENTAL_IMAGE:
-			restore_incremental_image($cadenaip, $atributos);
+			$ret = restore_incremental_image($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_POWEROFF:
-			poweroff($cadenaip);
+			$ret = poweroff($cadenaip);
 			break;
 		case OG_CMD_ID_CREATE_IMAGE:
-			create_image($cadenaip, $atributos);
+			$ret = create_image($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_RESTORE_IMAGE:
-			restore_image($cadenaip, $atributos);
+			$ret = restore_image($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_REBOOT:
-			reboot($cadenaip);
+			$ret = reboot($cadenaip);
 			break;
 		case OG_CMD_ID_HARDWARE:
-			hardware($cadenaip);
+			$ret = hardware($cadenaip);
 			break;
 		case OG_CMD_ID_SOFTWARE:
-			software($cadenaip, $atributos);
+			$ret = software($cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_SCRIPT:
-			shell(3, $cadenaip, $atributos);
+			$ret = shell(3, $cadenaip, $atributos);
 			break;
 		case OG_CMD_ID_DELETE_CACHED_IMAGE:
-			shell(4, $cadenaip, $atributos);
+			$ret = shell(4, $cadenaip, $atributos);
 			break;
 	}
+
+	return $ret;
+}
+
+function update_command_status(&$cmd, $computers_id_string, $id_command,
+	$success)
+{
+	$num_ids = count(explode(",",$computers_id_string));
+	global $ACCION_FINALIZADA;
+	global $ACCION_FALLIDA;
+	global $ACCION_EXITOSA;
+	$status;
+
+	if ($success === 0)
+		$status = $ACCION_FALLIDA;
+	else
+		$status = $ACCION_EXITOSA;
+
+	$cmd->CreaParametro("@fechahorafin", date("y/m/d H:i:s"), 0);
+	$cmd->ParamSetValor("@estado", $ACCION_FINALIZADA);
+	$cmd->ParamSetValor("@resultado", $status);
+	$cmd->CreaParametro("@ids", $computers_id_string, 1);
+	$cmd->CreaParametro("@command", $id_command, 1);
+	$cmd->CreaParametro("@num_ids", $num_ids, 1);
+	$cmd->texto = "UPDATE acciones SET resultado=@resultado, ".
+		      "estado=@estado, fechahorafin=@fechahorafin ".
+		      "WHERE idordenador IN (@ids) AND idcomando=@command ".
+		      "ORDER BY idaccion DESC LIMIT @num_ids";
+	$resul=$cmd->Ejecutar();
 }
 
 // Recoge parametros de seguimiento
@@ -235,11 +266,12 @@ if($sw_ejya=='on' || $sw_ejprg=="on" ){
 		$ValorParametros=extrae_parametros($parametros,chr(13),'=');
 		$script=@urldecode($ValorParametros["scp"]);
 		if($sw_ejya=='on'){
-			if (($sw_seguimiento == 1 || $sw_ejprg == "on") &&
-			    $idcomando != OG_CMD_ID_WAKEUP)
-				run_schedule($cadenaip);
-			else
-				run_command($idcomando, $cadenaip, $cadenamac, $atributos);
+			$success = run_command($idcomando, $cadenaip,
+					       $cadenamac, $atributos);
+
+			if ($sw_seguimiento == 1 || $sw_ejprg == "on")
+				update_command_status($cmd, $cadenaid,
+						      $idcomando, $success);
 
 			// En agente nuevo devuelvo siempre correcto
 			$resulhidra = 1;
