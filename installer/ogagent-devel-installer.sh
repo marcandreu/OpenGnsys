@@ -24,8 +24,8 @@ OGAgent devoloping environment installation
 Prerequisites:
 - Install packages, if needed:
   - Subversion
-  - Wine for 32-bit (Winetricks may be required)
-  - Python 2.7 with pyqt4-dev-tools
+  - Wine for 64-bit
+  - Python 3 with PyQt5 devel tools
   - realpath
   - dpkg-dev
   - rpmbuild
@@ -59,7 +59,7 @@ read
 
 # Downloading and configuring Wine prerequisites.
 pushd ogagent/windows >/dev/null
-./py2exe-wine-linux.sh
+./pyinstaller-wine.sh
 cp -a build.bat ogagent.nsi ..
 ln -s ../../.. wine/drive_c/ogagent
 popd >/dev/null
