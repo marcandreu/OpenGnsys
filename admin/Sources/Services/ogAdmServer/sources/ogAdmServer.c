@@ -3639,7 +3639,7 @@ static int og_dbi_queue_task(struct og_dbi *dbi, uint32_t task_id,
 
 void og_dbi_schedule_task(unsigned int task_id, unsigned int schedule_id)
 {
-	struct og_msg_params params;
+	struct og_msg_params params = {};
 	bool duplicated = false;
 	struct og_cmd *cmd;
 	struct og_dbi *dbi;
