@@ -222,7 +222,7 @@ function session($string_ips, $params) {
 	$data = array(OG_REST_PARAM_CLIENTS => $ips,
 		OG_REST_PARAM_DISK => $disk, OG_REST_PARAM_PART => $part);
 
-	return common_request(OG_REST_CMD_SESSION, POST, $data);
+	common_request(OG_REST_CMD_SESSION, POST, $data);
 }
 
 function create_image($string_ips, $params) {
@@ -268,7 +268,7 @@ function restore_image($string_ips, $params) {
 		OG_REST_PARAM_TYPE => $type,
 		OG_REST_PARAM_CLIENTS => $ips);
 
-	return common_request(OG_REST_CMD_RESTORE_IMAGE, POST, $data);
+	common_request(OG_REST_CMD_RESTORE_IMAGE, POST, $data);
 }
 
 function create_basic_image($string_ips, $params) {
@@ -313,7 +313,7 @@ function create_basic_image($string_ips, $params) {
 		)
 	);
 
-	return common_request(OG_REST_CMD_CREATE_BASIC_IMAGE, POST, $data);
+	common_request(OG_REST_CMD_CREATE_BASIC_IMAGE, POST, $data);
 }
 
 function create_incremental_image($string_ips, $params) {
@@ -358,9 +358,7 @@ function create_incremental_image($string_ips, $params) {
 			OG_REST_PARAM_REMOVE_DST => $remove_dst)
 	);
 
-	return common_request(OG_REST_CMD_CREATE_INCREMENTAL_IMAGE,
-			      POST,
-			      $data);
+	common_request(OG_REST_CMD_CREATE_INCREMENTAL_IMAGE, POST, $data);
 }
 
 function restore_basic_image($string_ips, $params) {
@@ -412,7 +410,7 @@ function restore_basic_image($string_ips, $params) {
 		)
 	);
 
-	return common_request(OG_REST_CMD_RESTORE_BASIC_IMAGE, POST, $data);
+	common_request(OG_REST_CMD_RESTORE_BASIC_IMAGE, POST, $data);
 }
 
 function restore_incremental_image($string_ips, $params) {
@@ -464,9 +462,7 @@ function restore_incremental_image($string_ips, $params) {
 		)
 	);
 
-	return common_request(OG_REST_CMD_RESTORE_INCREMENTAL_IMAGE,
-			      POST,
-			      $data);
+	common_request(OG_REST_CMD_RESTORE_INCREMENTAL_IMAGE, POST, $data);
 }
 
 function poweroff($string_ips) {
@@ -475,7 +471,7 @@ function poweroff($string_ips) {
 
 	$data = array(OG_REST_PARAM_CLIENTS => $ips);
 
-	return common_request(OG_REST_CMD_POWEROFF, POST, $data);
+	common_request(OG_REST_CMD_POWEROFF, POST, $data);
 }
 
 function reboot($string_ips) {
@@ -484,7 +480,7 @@ function reboot($string_ips) {
 
 	$data = array(OG_REST_PARAM_CLIENTS => $ips);
 
-	return common_request(OG_REST_CMD_REBOOT, POST, $data);
+	common_request(OG_REST_CMD_REBOOT, POST, $data);
 }
 
 function stop($string_ips) {
@@ -511,7 +507,7 @@ function hardware($string_ips) {
 
 	$data = array(OG_REST_PARAM_CLIENTS => $ips);
 
-	return common_request(OG_REST_CMD_HARDWARE, POST, $data);
+	common_request(OG_REST_CMD_HARDWARE, POST, $data);
 }
 
 function software($string_ips, $params) {
@@ -526,7 +522,7 @@ function software($string_ips, $params) {
 		OG_REST_PARAM_DISK => $disk,
 		OG_REST_PARAM_PART => $part);
 
-	return common_request(OG_REST_CMD_SOFTWARE, POST, $data);
+	common_request(OG_REST_CMD_SOFTWARE, POST, $data);
 }
 
 function setup($string_ips, $params) {
@@ -570,7 +566,7 @@ function setup($string_ips, $params) {
 		array_push($data[OG_REST_PARAM_PARTITION_SETUP], $partition_setup);
 	}
 
-	return common_request(OG_REST_CMD_SETUP, POST, $data);
+	common_request(OG_REST_CMD_SETUP, POST, $data);
 }
 
 function run_schedule($string_ips) {
